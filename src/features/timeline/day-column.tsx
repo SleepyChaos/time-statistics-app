@@ -1,16 +1,42 @@
-import { memo, useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import {
+  LayoutAnimation,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { addLocalDays } from '@/domain/time/local-day';
-import { clipInterval } from '@/domain/time/interval';
+import { clipInterval, type TimeInterval } from '@/domain/time/interval';
+import {
+  applyTimelineDrag,
+  conflictsWithRecords,
+  type TimelineDragTarget,
+} from '@/domain/timeline/timeline-edit';
 import type { TimelineSchedule, TimelineSlice } from '@/domain/timeline/timeline';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
 export const HOUR_HEIGHT = 56;
 export const DAY_HEIGHT = HOUR_HEIGHT * 24;
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 interface DayColumnProps {
   dayStart: number;
+  now: number;
+  onChangeRecordRange: (
+    recordId: string,
+    startsAt: number,
+    endsAt: number,
+    target: TimelineDragTarget,
+  ) => void;
+  onChangeScheduleTime: (scheduleId: string, startsAt: number, endsAt: number) => void;
   onPressBlank: (timestamp: number) => void;
   onPressRecord: (recordId: string) => void;
   onPressSchedule: (scheduleId: string) => void;
@@ -20,6 +46,9 @@ interface DayColumnProps {
 
 export const DayColumn = memo(function DayColumn({
   dayStart,
+  now,
+  onChangeRecordRange,
+  onChangeScheduleTime,
   onPressBlank,
   onPressRecord,
   onPressSchedule,
@@ -27,39 +56,30 @@ export const DayColumn = memo(function DayColumn({
   slices,
 }: DayColumnProps) {
   const dayEnd = addLocalDays(dayStart, 1);
-  const visibleSlices = useMemo(
+  const records = useMemo(() => groupRecordSlices(slices), [slices]);
+  const occupied = useMemo(
     () =>
-      slices
-        .map((slice) => ({
-          slice,
-          interval: clipInterval(slice, { startsAt: dayStart, endsAt: dayEnd }),
-        }))
-        .filter(
-          (
-            value,
-          ): value is {
-            slice: TimelineSlice;
-            interval: { startsAt: number; endsAt: number };
-          } => value.interval !== null,
-        ),
-    [dayEnd, dayStart, slices],
+      records.map((record) => ({
+        recordId: record.recordId,
+        startsAt: record.startsAt,
+        endsAt: record.endsAt,
+      })),
+    [records],
+  );
+  const visibleRecords = useMemo(
+    () =>
+      records.filter((record) =>
+        clipInterval(record, { startsAt: dayStart, endsAt: dayEnd }),
+      ),
+    [dayEnd, dayStart, records],
   );
   const visibleSchedules = useMemo(
     () =>
-      schedules
-        .filter((schedule) => !schedule.isAllDay)
-        .map((schedule) => ({
-          schedule,
-          interval: clipInterval(schedule, { startsAt: dayStart, endsAt: dayEnd }),
-        }))
-        .filter(
-          (
-            value,
-          ): value is {
-            schedule: TimelineSchedule;
-            interval: { startsAt: number; endsAt: number };
-          } => value.interval !== null,
-        ),
+      schedules.filter(
+        (schedule) =>
+          !schedule.isAllDay &&
+          clipInterval(schedule, { startsAt: dayStart, endsAt: dayEnd }) !== null,
+      ),
     [dayEnd, dayStart, schedules],
   );
 
@@ -72,7 +92,7 @@ export const DayColumn = memo(function DayColumn({
         }
         style={StyleSheet.absoluteFill}
       />
-      {Array.from({ length: 24 }, (_, hour) => (
+      {HOURS.map((hour) => (
         <View
           key={hour}
           pointerEvents="none"
@@ -80,60 +100,343 @@ export const DayColumn = memo(function DayColumn({
           <Text style={styles.hourText}>{hour.toString().padStart(2, '0')}:00</Text>
         </View>
       ))}
-      {visibleSlices.map(({ interval, slice }) => {
-        const isEffective = slice.kind === 'effective';
-        return (
-          <Pressable
-            key={slice.id}
-            accessibilityLabel={`${isEffective ? slice.eventName : '暂停'}记录`}
-            onPress={(event) => {
-              event.stopPropagation();
-              onPressRecord(slice.recordId);
-            }}
-            style={[
-              styles.recordBlock,
-              blockPosition(interval, dayStart),
-              { backgroundColor: isEffective ? slice.eventColorArgb : colors.textMuted },
-            ]}>
-            <Text numberOfLines={2} style={styles.recordText}>
-              {isEffective ? slice.eventName : '暂停'}
-            </Text>
-          </Pressable>
-        );
-      })}
-      {visibleSchedules.map(({ interval, schedule }) => (
-        <Pressable
+      {visibleRecords.map((record) => (
+        <EditableRecordBlock
+          key={record.recordId}
+          dayEnd={dayEnd}
+          dayStart={dayStart}
+          occupied={occupied}
+          now={now}
+          onChangeRange={onChangeRecordRange}
+          onPress={onPressRecord}
+          record={record}
+        />
+      ))}
+      {visibleSchedules.map((schedule) => (
+        <EditableScheduleBlock
           key={schedule.id}
-          onPress={(event) => {
-            event.stopPropagation();
-            onPressSchedule(schedule.id);
-          }}
-          style={[
-            styles.scheduleBlock,
-            blockPosition(interval, dayStart),
-            {
-              borderColor: schedule.colorArgb,
-              backgroundColor: colorWithAlpha(
-                schedule.colorArgb,
-                schedule.isMarkedNotOccurred ? '26' : '66',
-              ),
-            },
-          ]}>
-          <Text
-            numberOfLines={2}
-            style={[styles.scheduleText, { color: schedule.colorArgb }]}>
-            {schedule.title}
-          </Text>
-        </Pressable>
+          dayEnd={dayEnd}
+          dayStart={dayStart}
+          onChangeTime={onChangeScheduleTime}
+          onPress={onPressSchedule}
+          schedule={schedule}
+        />
       ))}
     </View>
   );
 });
 
-function blockPosition(interval: { startsAt: number; endsAt: number }, dayStart: number) {
-  const top = ((interval.startsAt - dayStart) / 3_600_000) * HOUR_HEIGHT;
-  const height = Math.max(3, ((interval.endsAt - interval.startsAt) / 3_600_000) * HOUR_HEIGHT);
-  return { top, height };
+interface RecordGroup extends TimeInterval {
+  recordId: string;
+  eventName: string;
+  eventColorArgb: string;
+  slices: TimelineSlice[];
+}
+
+function EditableRecordBlock({
+  dayEnd,
+  dayStart,
+  occupied,
+  now,
+  onChangeRange,
+  onPress,
+  record,
+}: {
+  dayEnd: number;
+  dayStart: number;
+  occupied: readonly (TimeInterval & { recordId: string })[];
+  now: number;
+  onChangeRange: (
+    recordId: string,
+    startsAt: number,
+    endsAt: number,
+    target: TimelineDragTarget,
+  ) => void;
+  onPress: (recordId: string) => void;
+  record: RecordGroup;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [preview, setPreview] = useState<TimeInterval | null>(null);
+  const [conflicting, setConflicting] = useState(false);
+  const longPressed = useRef(false);
+  const shown = preview ?? record;
+  const visible =
+    clipInterval(shown, { startsAt: dayStart, endsAt: dayEnd }) ??
+    clipInterval(record, { startsAt: dayStart, endsAt: dayEnd });
+
+  const previewDrag = useCallback(
+    (target: TimelineDragTarget, deltaY: number) => {
+      const candidate = applyTimelineDrag(record, target, deltaY, HOUR_HEIGHT);
+      setPreview(candidate);
+      setConflicting(
+        candidate.endsAt > now ||
+          conflictsWithRecords(candidate, occupied, record.recordId),
+      );
+    },
+    [now, occupied, record],
+  );
+  const finishDrag = useCallback(
+    (target: TimelineDragTarget, deltaY: number) => {
+      const candidate = applyTimelineDrag(record, target, deltaY, HOUR_HEIGHT);
+      const invalid =
+        candidate.endsAt > now ||
+        conflictsWithRecords(candidate, occupied, record.recordId);
+      if (invalid) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setPreview(null);
+      setConflicting(false);
+      if (invalid) return;
+      setEditing(false);
+      if (candidate.startsAt !== record.startsAt || candidate.endsAt !== record.endsAt) {
+        onChangeRange(record.recordId, candidate.startsAt, candidate.endsAt, target);
+      }
+    },
+    [now, occupied, onChangeRange, record],
+  );
+  const responders = useMemo(
+    () => ({
+      body: createDragResponder(
+        () => editing,
+        (deltaY) => previewDrag('body', deltaY),
+        (deltaY) => finishDrag('body', deltaY),
+      ),
+      start: createDragResponder(
+        () => editing,
+        (deltaY) => previewDrag('start', deltaY),
+        (deltaY) => finishDrag('start', deltaY),
+        true,
+      ),
+      end: createDragResponder(
+        () => editing,
+        (deltaY) => previewDrag('end', deltaY),
+        (deltaY) => finishDrag('end', deltaY),
+        true,
+      ),
+    }),
+    [editing, finishDrag, previewDrag],
+  );
+  if (!visible) return null;
+
+  return (
+    <View
+      style={[
+        styles.recordGroup,
+        blockPosition(visible, dayStart),
+        editing && styles.editingBlock,
+        conflicting && styles.conflictingBlock,
+      ]}>
+      <Pressable
+        accessibilityHint="长按后可拖动"
+        accessibilityLabel={`${record.eventName}记录`}
+        delayLongPress={350}
+        onLongPress={() => {
+          longPressed.current = true;
+          setEditing(true);
+        }}
+        onPress={(event) => {
+          event.stopPropagation();
+          if (longPressed.current) {
+            longPressed.current = false;
+          } else if (editing) {
+            setEditing(false);
+            setPreview(null);
+          } else {
+            onPress(record.recordId);
+          }
+        }}
+        style={StyleSheet.absoluteFill}
+        {...(editing ? responders.body.panHandlers : {})}>
+        {preview ? (
+          <View style={[styles.previewFill, { backgroundColor: record.eventColorArgb }]}>
+            <Text numberOfLines={2} style={styles.recordText}>
+              {conflicting ? '时间冲突' : record.eventName}
+            </Text>
+            <Text numberOfLines={1} style={styles.dragTime}>
+              {timeFormatter.format(preview.startsAt)}–{timeFormatter.format(preview.endsAt)}
+            </Text>
+          </View>
+        ) : (
+          record.slices.map((slice) => {
+            const clipped = clipInterval(slice, visible);
+            if (!clipped) return null;
+            const isEffective = slice.kind === 'effective';
+            return (
+              <View
+                key={slice.id}
+                pointerEvents="none"
+                style={[
+                  styles.sliceFill,
+                  relativeBlockPosition(clipped, visible.startsAt),
+                  { backgroundColor: isEffective ? record.eventColorArgb : colors.textMuted },
+                ]}>
+                <Text numberOfLines={1} style={styles.recordText}>
+                  {isEffective ? record.eventName : '暂停'}
+                </Text>
+              </View>
+            );
+          })
+        )}
+      </Pressable>
+      {editing ? (
+        <>
+          <View style={styles.topHandle} {...responders.start.panHandlers} />
+          <View style={styles.bottomHandle} {...responders.end.panHandlers} />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function EditableScheduleBlock({
+  dayEnd,
+  dayStart,
+  onChangeTime,
+  onPress,
+  schedule,
+}: {
+  dayEnd: number;
+  dayStart: number;
+  onChangeTime: (scheduleId: string, startsAt: number, endsAt: number) => void;
+  onPress: (scheduleId: string) => void;
+  schedule: TimelineSchedule;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [preview, setPreview] = useState<TimeInterval | null>(null);
+  const longPressed = useRef(false);
+  const shown = preview ?? schedule;
+  const visible =
+    clipInterval(shown, { startsAt: dayStart, endsAt: dayEnd }) ??
+    clipInterval(schedule, { startsAt: dayStart, endsAt: dayEnd });
+  const canEdit = schedule.source === 'local';
+  const responders = useMemo(
+    () => ({
+      start: createDragResponder(
+        () => editing,
+        (deltaY) => setPreview(applyTimelineDrag(schedule, 'start', deltaY, HOUR_HEIGHT)),
+        (deltaY) => {
+          const candidate = applyTimelineDrag(schedule, 'start', deltaY, HOUR_HEIGHT);
+          setPreview(null);
+          setEditing(false);
+          onChangeTime(schedule.id, candidate.startsAt, candidate.endsAt);
+        },
+        true,
+      ),
+      end: createDragResponder(
+        () => editing,
+        (deltaY) => setPreview(applyTimelineDrag(schedule, 'end', deltaY, HOUR_HEIGHT)),
+        (deltaY) => {
+          const candidate = applyTimelineDrag(schedule, 'end', deltaY, HOUR_HEIGHT);
+          setPreview(null);
+          setEditing(false);
+          onChangeTime(schedule.id, candidate.startsAt, candidate.endsAt);
+        },
+        true,
+      ),
+    }),
+    [editing, onChangeTime, schedule],
+  );
+  if (!visible) return null;
+
+  return (
+    <View
+      style={[
+        styles.scheduleBlock,
+        blockPosition(visible, dayStart),
+        editing && styles.editingBlock,
+        {
+          borderColor: schedule.colorArgb,
+          backgroundColor: colorWithAlpha(
+            schedule.colorArgb,
+            schedule.isMarkedNotOccurred ? '26' : '66',
+          ),
+        },
+      ]}>
+      <Pressable
+        delayLongPress={350}
+        onLongPress={() => {
+          if (canEdit) {
+            longPressed.current = true;
+            setEditing(true);
+          }
+        }}
+        onPress={(event) => {
+          event.stopPropagation();
+          if (longPressed.current) {
+            longPressed.current = false;
+          } else if (editing) {
+            setEditing(false);
+            setPreview(null);
+          } else {
+            onPress(schedule.id);
+          }
+        }}
+        style={StyleSheet.absoluteFill}>
+        <Text numberOfLines={2} style={[styles.scheduleText, { color: schedule.colorArgb }]}>
+          {schedule.title}
+        </Text>
+        {preview ? (
+          <Text numberOfLines={1} style={[styles.dragTime, { color: schedule.colorArgb }]}>
+            {timeFormatter.format(preview.startsAt)}–{timeFormatter.format(preview.endsAt)}
+          </Text>
+        ) : null}
+      </Pressable>
+      {editing ? (
+        <>
+          <View style={styles.topHandle} {...responders.start.panHandlers} />
+          <View style={styles.bottomHandle} {...responders.end.panHandlers} />
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function createDragResponder(
+  enabled: () => boolean,
+  onMove: (deltaY: number) => void,
+  onRelease: (deltaY: number) => void,
+  captureImmediately = false,
+) {
+  return PanResponder.create({
+    onStartShouldSetPanResponder: () => captureImmediately && enabled(),
+    onMoveShouldSetPanResponder: (_, gesture) => enabled() && Math.abs(gesture.dy) > 2,
+    onPanResponderMove: (_, gesture) => onMove(gesture.dy),
+    onPanResponderRelease: (_, gesture) => onRelease(gesture.dy),
+    onPanResponderTerminate: (_, gesture) => onRelease(gesture.dy),
+    onPanResponderTerminationRequest: () => false,
+  });
+}
+
+function groupRecordSlices(slices: readonly TimelineSlice[]) {
+  const records = new Map<string, RecordGroup>();
+  for (const slice of slices) {
+    const existing = records.get(slice.recordId);
+    if (existing) {
+      existing.slices.push(slice);
+    } else {
+      records.set(slice.recordId, {
+        recordId: slice.recordId,
+        eventName: slice.eventName,
+        eventColorArgb: slice.eventColorArgb,
+        startsAt: slice.recordStartsAt,
+        endsAt: slice.recordEndsAt,
+        slices: [slice],
+      });
+    }
+  }
+  return [...records.values()];
+}
+
+function blockPosition(interval: TimeInterval, dayStart: number) {
+  return {
+    top: ((interval.startsAt - dayStart) / 3_600_000) * HOUR_HEIGHT,
+    height: Math.max(3, ((interval.endsAt - interval.startsAt) / 3_600_000) * HOUR_HEIGHT),
+  };
+}
+
+function relativeBlockPosition(interval: TimeInterval, startsAt: number) {
+  return {
+    top: ((interval.startsAt - startsAt) / 3_600_000) * HOUR_HEIGHT,
+    height: Math.max(3, ((interval.endsAt - interval.startsAt) / 3_600_000) * HOUR_HEIGHT),
+  };
 }
 
 function colorWithAlpha(color: string, alpha: string) {
@@ -163,11 +466,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontVariant: ['tabular-nums'],
   },
-  recordBlock: {
+  recordGroup: {
     position: 'absolute',
     left: 38,
     width: '30%',
-    minHeight: 3,
+    minHeight: 5,
+    overflow: 'visible',
+    borderRadius: radii.md,
+  },
+  sliceFill: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    overflow: 'hidden',
+    padding: 3,
+    borderRadius: radii.md,
+  },
+  previewFill: {
+    flex: 1,
     overflow: 'hidden',
     padding: 3,
     borderRadius: radii.md,
@@ -177,12 +493,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
+  dragTime: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontVariant: ['tabular-nums'],
+  },
   scheduleBlock: {
     position: 'absolute',
     left: '68%',
     right: 3,
-    minHeight: 3,
-    overflow: 'hidden',
+    minHeight: 5,
+    overflow: 'visible',
     padding: 3,
     borderWidth: 1,
     borderRadius: radii.md,
@@ -190,5 +511,33 @@ const styles = StyleSheet.create({
   scheduleText: {
     fontSize: typography.small,
     fontWeight: '700',
+  },
+  editingBlock: {
+    zIndex: 20,
+    borderWidth: 2,
+    borderColor: colors.text,
+  },
+  conflictingBlock: {
+    opacity: 0.65,
+    borderColor: colors.tomato,
+    backgroundColor: colors.tomato,
+  },
+  topHandle: {
+    position: 'absolute',
+    top: -7,
+    left: 2,
+    right: 2,
+    height: 14,
+    borderRadius: radii.full,
+    backgroundColor: colors.text,
+  },
+  bottomHandle: {
+    position: 'absolute',
+    bottom: -7,
+    left: 2,
+    right: 2,
+    height: 14,
+    borderRadius: radii.full,
+    backgroundColor: colors.text,
   },
 });

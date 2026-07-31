@@ -15,6 +15,7 @@ import {
   startOfLocalDay,
 } from '@/domain/time/local-day';
 import type { BackfillDraft } from '@/domain/history/history-record';
+import type { TimelineDragTarget } from '@/domain/timeline/timeline-edit';
 import { FIVE_MINUTES_MS, snapForwardToFiveMinutes } from '@/domain/time/snap';
 import { BackfillCard } from '@/features/history/backfill-card';
 import { RecordDetailCard } from '@/features/history/record-detail-card';
@@ -67,9 +68,16 @@ export default function ViewScreen() {
     error: historyError,
     isMutating: isHistoryMutating,
     prepareBackfill: prepareBackfillMutation,
+    updateRange,
     updateRecord,
   } = useHistoryActions();
-  const scheduleActions = useScheduleActions();
+  const {
+    create: createSchedule,
+    error: scheduleError,
+    isMutating: isScheduleMutating,
+    markOccurrence,
+    updateTime: updateScheduleTime,
+  } = useScheduleActions();
   const scheduleDetail = useScheduleDetail(selectedScheduleId);
   const detail = useHistoryRecordDetail(selectedRecordId);
   const eventsQuery = useActiveEvents();
@@ -147,6 +155,18 @@ export default function ViewScreen() {
     setSelectedScheduleId(null);
     setScheduleDraft({ startsAt, endsAt: startsAt + 6 * FIVE_MINUTES_MS });
   };
+  const changeRecordRange = useCallback(
+    (recordId: string, startsAt: number, endsAt: number, target: TimelineDragTarget) => {
+      updateRange({ recordId, startsAt, endsAt, target });
+    },
+    [updateRange],
+  );
+  const changeScheduleTime = useCallback(
+    (id: string, startsAt: number, endsAt: number) => {
+      updateScheduleTime({ id, startsAt, endsAt });
+    },
+    [updateScheduleTime],
+  );
 
   const snapshot = timeline.data;
   const utilization = snapshot?.utilization;
@@ -217,6 +237,9 @@ export default function ViewScreen() {
               <View style={styles.columns}>
                 <DayColumn
                   dayStart={leftDayStart}
+                  now={now}
+                  onChangeRecordRange={changeRecordRange}
+                  onChangeScheduleTime={changeScheduleTime}
                   onPressBlank={prepareBackfill}
                   onPressRecord={openRecord}
                   onPressSchedule={openSchedule}
@@ -225,6 +248,9 @@ export default function ViewScreen() {
                 />
                 <DayColumn
                   dayStart={rightDayStart}
+                  now={now}
+                  onChangeRecordRange={changeRecordRange}
+                  onChangeScheduleTime={changeScheduleTime}
                   onPressBlank={prepareBackfill}
                   onPressRecord={openRecord}
                   onPressSchedule={openSchedule}
@@ -239,8 +265,8 @@ export default function ViewScreen() {
           {historyError ? (
             <Text style={styles.error}>{readableHistoryError(historyError)}</Text>
           ) : null}
-          {scheduleActions.error ? (
-            <Text style={styles.error}>{readableScheduleError(scheduleActions.error)}</Text>
+          {scheduleError ? (
+            <Text style={styles.error}>{readableScheduleError(scheduleError)}</Text>
           ) : null}
         </>
       ) : (
@@ -295,11 +321,11 @@ export default function ViewScreen() {
         <View style={styles.cardOverlay}>
           <ScheduleDetailCard
             detail={selectedSchedule}
-            isMutating={scheduleActions.isMutating}
+            isMutating={isScheduleMutating}
             now={now}
             onClose={() => setSelectedScheduleId(null)}
             onToggleOccurred={() =>
-              scheduleActions.markOccurrence(
+              markOccurrence(
                 {
                   id: selectedSchedule.id,
                   occurrenceStartsAt: selectedSchedule.startsAt,
@@ -316,10 +342,10 @@ export default function ViewScreen() {
             key={scheduleDraft.startsAt}
             initialEndsAt={scheduleDraft.endsAt}
             initialStartsAt={scheduleDraft.startsAt}
-            isMutating={scheduleActions.isMutating}
+            isMutating={isScheduleMutating}
             onClose={() => setScheduleDraft(null)}
             onSave={(input) =>
-              scheduleActions.create(input, {
+              createSchedule(input, {
                 onSuccess: (schedule) => {
                   setScheduleDraft(null);
                   setSelectedScheduleId(schedule.id);

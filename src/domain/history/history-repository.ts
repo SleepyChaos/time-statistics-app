@@ -3,6 +3,7 @@ import type {
   HistoryRecordDetail,
   TrashedRecord,
 } from '@/domain/history/history-record';
+import type { TimelineDragTarget } from '@/domain/timeline/timeline-edit';
 
 export interface CreateBackfillInput {
   startsAt: number;
@@ -22,6 +23,12 @@ export interface UpdateHistoryRecordInput {
 export interface HistoryRepository {
   getDetail(recordId: string): Promise<HistoryRecordDetail | null>;
   updateRecord(input: UpdateHistoryRecordInput): Promise<void>;
+  updateRange(
+    recordId: string,
+    startsAt: number,
+    endsAt: number,
+    target: TimelineDragTarget,
+  ): Promise<void>;
   deleteRecord(recordId: string): Promise<void>;
   listTrash(now?: number): Promise<TrashedRecord[]>;
   restoreRecord(recordId: string): Promise<void>;

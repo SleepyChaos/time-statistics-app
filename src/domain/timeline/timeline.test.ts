@@ -3,6 +3,7 @@ import { calculateViewUtilization, type TimelineSchedule } from './timeline';
 function schedule(overrides: Partial<TimelineSchedule>): TimelineSchedule {
   return {
     id: 'schedule',
+    source: 'local',
     title: '日程',
     startsAt: 0,
     endsAt: 10,
@@ -51,4 +52,3 @@ describe('calculateViewUtilization', () => {
     ).toEqual({ effectiveMs: 30, elapsedMs: 50, ratio: 0.6 });
   });
 });
-

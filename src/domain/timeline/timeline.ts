@@ -7,6 +7,8 @@ export interface TimelineSlice {
   kind: TimeSliceKind;
   startsAt: number;
   endsAt: number;
+  recordStartsAt: number;
+  recordEndsAt: number;
   eventName: string;
   eventColorArgb: string;
   todoTitle: string | null;
@@ -14,6 +16,7 @@ export interface TimelineSlice {
 
 export interface TimelineSchedule {
   id: string;
+  source: 'local' | 'eventkit';
   title: string;
   startsAt: number;
   endsAt: number;
@@ -53,4 +56,3 @@ export function calculateViewUtilization(input: {
     input.now,
   );
 }
-

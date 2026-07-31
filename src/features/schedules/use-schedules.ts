@@ -41,12 +41,23 @@ export function useScheduleActions() {
       ]);
     },
   });
+  const updateTimeMutation = useMutation({
+    mutationFn: ({ id, startsAt, endsAt }: { id: string; startsAt: number; endsAt: number }) =>
+      repository.updateTime(id, startsAt, endsAt),
+    onSuccess: async (_, input) => {
+      await Promise.all([
+        refreshTimeline(),
+        queryClient.invalidateQueries({ queryKey: ['schedule', 'detail', input.id] }),
+      ]);
+    },
+  });
 
   return {
     create: createMutation.mutate,
     markOccurrence: occurrenceMutation.mutate,
-    isMutating: createMutation.isPending || occurrenceMutation.isPending,
-    error: createMutation.error ?? occurrenceMutation.error,
+    updateTime: updateTimeMutation.mutate,
+    isMutating:
+      createMutation.isPending || occurrenceMutation.isPending || updateTimeMutation.isPending,
+    error: createMutation.error ?? occurrenceMutation.error ?? updateTimeMutation.error,
   };
 }
-

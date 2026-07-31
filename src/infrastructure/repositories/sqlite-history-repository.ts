@@ -15,6 +15,7 @@ import type {
   UpdateHistoryRecordInput,
 } from '@/domain/history/history-repository';
 import type { TimeSliceKind, TimerMode } from '@/domain/timer/active-timer';
+import type { TimelineDragTarget } from '@/domain/timeline/timeline-edit';
 import { purgeExpiredRecords } from '@/infrastructure/database/maintenance';
 
 interface DetailRow {
@@ -196,6 +197,43 @@ export class SqliteHistoryRepository implements HistoryRepository {
         now,
         record.session_id,
       );
+    });
+  }
+
+  async updateRange(
+    recordId: string,
+    startsAt: number,
+    endsAt: number,
+    target: TimelineDragTarget,
+  ) {
+    if (endsAt <= startsAt || endsAt > Date.now()) throw new Error('INVALID_TIME_RANGE');
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const record = await transaction.getFirstAsync<{
+        session_id: string;
+        started_at: number;
+      }>(
+        `SELECT session_id, started_at FROM time_records
+         WHERE id = ? AND deleted_at IS NULL AND ended_at IS NOT NULL`,
+        recordId,
+      );
+      if (!record) throw new Error('RECORD_NOT_FOUND');
+      if (await findOverlap(transaction, startsAt, endsAt, recordId)) {
+        throw new Error('TIME_RECORD_OVERLAP');
+      }
+      if (target === 'body') {
+        await shiftRecordSlices(transaction, recordId, startsAt - record.started_at);
+      } else {
+        await replaceRecordSlices(transaction, recordId, startsAt, endsAt);
+      }
+      const now = Date.now();
+      await transaction.runAsync(
+        `UPDATE time_records SET started_at = ?, ended_at = ?, updated_at = ? WHERE id = ?`,
+        startsAt,
+        endsAt,
+        now,
+        recordId,
+      );
+      await updateSessionBounds(transaction, record.session_id, now);
     });
   }
 
@@ -424,6 +462,69 @@ async function findOverlap(
     endsAt,
     endsAt,
     startsAt,
+  );
+}
+
+async function replaceRecordSlices(
+  database: SQLiteDatabase,
+  recordId: string,
+  startsAt: number,
+  endsAt: number,
+) {
+  const rows = await database.getAllAsync<EditableSliceRow>(
+    `SELECT id, kind, started_at, ended_at FROM time_slices
+     WHERE record_id = ? AND ended_at IS NOT NULL ORDER BY started_at ASC`,
+    recordId,
+  );
+  const slices = cropSlicesToRange(
+    rows.map((slice) => ({
+      id: slice.id,
+      kind: slice.kind,
+      startsAt: slice.started_at,
+      endsAt: slice.ended_at,
+    })),
+    startsAt,
+    endsAt,
+  );
+  await database.runAsync('DELETE FROM time_slices WHERE record_id = ?', recordId);
+  for (const slice of slices) {
+    await database.runAsync(
+      `INSERT INTO time_slices (id, record_id, kind, started_at, ended_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      slice.id,
+      recordId,
+      slice.kind,
+      slice.startsAt,
+      slice.endsAt,
+    );
+  }
+}
+
+async function shiftRecordSlices(database: SQLiteDatabase, recordId: string, deltaMs: number) {
+  await database.runAsync(
+    `UPDATE time_slices SET
+       started_at = started_at + ?,
+       ended_at = ended_at + ?
+     WHERE record_id = ? AND ended_at IS NOT NULL`,
+    deltaMs,
+    deltaMs,
+    recordId,
+  );
+}
+
+async function updateSessionBounds(database: SQLiteDatabase, sessionId: string, now: number) {
+  await database.runAsync(
+    `UPDATE timer_sessions SET
+       started_at = (SELECT MIN(started_at) FROM time_records
+         WHERE session_id = ? AND deleted_at IS NULL),
+       ended_at = (SELECT MAX(ended_at) FROM time_records
+         WHERE session_id = ? AND deleted_at IS NULL),
+       updated_at = ?
+     WHERE id = ?`,
+    sessionId,
+    sessionId,
+    now,
+    sessionId,
   );
 }
 

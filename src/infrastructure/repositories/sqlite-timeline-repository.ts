@@ -18,6 +18,8 @@ interface SliceRow {
   kind: TimeSliceKind;
   started_at: number;
   ended_at: number;
+  record_started_at: number;
+  record_ended_at: number;
   event_name_snapshot: string;
   event_color_snapshot: string;
   todo_title_snapshot: string | null;
@@ -30,6 +32,7 @@ interface IntervalRow {
 
 interface ScheduleRow {
   id: string;
+  source: 'local' | 'eventkit';
   title: string;
   start_at: number;
   end_at: number;
@@ -74,6 +77,8 @@ export class SqliteTimelineRepository implements TimelineRepository {
           time_slices.kind,
           time_slices.started_at,
           time_slices.ended_at,
+          time_records.started_at AS record_started_at,
+          time_records.ended_at AS record_ended_at,
           time_records.event_name_snapshot,
           time_records.event_color_snapshot,
           time_records.todo_title_snapshot
@@ -118,6 +123,7 @@ export class SqliteTimelineRepository implements TimelineRepository {
       `
         SELECT
           schedule_items.id,
+          schedule_items.source,
           schedule_items.title,
           schedule_items.start_at,
           schedule_items.end_at,
@@ -147,6 +153,8 @@ function mapSlice(row: SliceRow): TimelineSlice {
     kind: row.kind,
     startsAt: row.started_at,
     endsAt: row.ended_at,
+    recordStartsAt: row.record_started_at,
+    recordEndsAt: row.record_ended_at,
     eventName: row.event_name_snapshot,
     eventColorArgb: row.event_color_snapshot,
     todoTitle: row.todo_title_snapshot,
@@ -156,6 +164,7 @@ function mapSlice(row: SliceRow): TimelineSlice {
 function mapSchedule(row: ScheduleRow): TimelineSchedule {
   return {
     id: row.id,
+    source: row.source,
     title: row.title,
     startsAt: row.start_at,
     endsAt: row.end_at,
@@ -164,4 +173,3 @@ function mapSchedule(row: ScheduleRow): TimelineSchedule {
     isMarkedNotOccurred: row.occurrence_status === 'not-occurred',
   };
 }
-

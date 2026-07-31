@@ -6,6 +6,7 @@ import type {
   CreateBackfillInput,
   UpdateHistoryRecordInput,
 } from '@/domain/history/history-repository';
+import type { TimelineDragTarget } from '@/domain/timeline/timeline-edit';
 import { SqliteHistoryRepository } from '@/infrastructure/repositories/sqlite-history-repository';
 
 const trashQueryKey = ['history', 'trash'] as const;
@@ -52,22 +53,44 @@ export function useHistoryActions() {
       ]);
     },
   });
+  const rangeMutation = useMutation({
+    mutationFn: ({
+      recordId,
+      startsAt,
+      endsAt,
+      target,
+    }: {
+      recordId: string;
+      startsAt: number;
+      endsAt: number;
+      target: TimelineDragTarget;
+    }) => repository.updateRange(recordId, startsAt, endsAt, target),
+    onSuccess: async (_, input) => {
+      await Promise.all([
+        refreshTimeline(),
+        queryClient.invalidateQueries({ queryKey: ['history', 'detail', input.recordId] }),
+      ]);
+    },
+  });
 
   return {
     deleteRecord: deleteMutation.mutate,
     prepareBackfill: prepareMutation.mutate,
     createBackfill: createMutation.mutate,
     updateRecord: updateMutation.mutate,
+    updateRange: rangeMutation.mutate,
     isMutating:
       deleteMutation.isPending ||
       prepareMutation.isPending ||
       createMutation.isPending ||
-      updateMutation.isPending,
+      updateMutation.isPending ||
+      rangeMutation.isPending,
     error:
       deleteMutation.error ??
       prepareMutation.error ??
       createMutation.error ??
-      updateMutation.error,
+      updateMutation.error ??
+      rangeMutation.error,
   };
 }
 
