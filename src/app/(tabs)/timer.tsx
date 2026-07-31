@@ -1,36 +1,194 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CurrentClock } from '@/features/timer/current-clock';
+import { ElapsedTime } from '@/features/timer/elapsed-time';
+import { useTimerController } from '@/features/timer/use-timer-controller';
+import { useActiveEvents } from '@/features/events/use-active-events';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
 export default function TimerScreen() {
+  const params = useLocalSearchParams<{
+    eventId?: string;
+    todoId?: string;
+    todoTitle?: string;
+  }>();
+  const eventsQuery = useActiveEvents();
+  const timer = useTimerController();
+  const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [reflection, setReflection] = useState('');
+  const [completeTodo, setCompleteTodo] = useState(false);
+  const requestedEventId = singleParam(params.eventId);
+
+  const selectedEvent = useMemo(
+    () =>
+      events.find((event) => event.id === selectedEventId) ??
+      events.find((event) => event.id === requestedEventId) ??
+      events[0] ??
+      null,
+    [events, requestedEventId, selectedEventId],
+  );
+  const displayedEventName = timer.activeTimer?.eventName ?? selectedEvent?.name ?? '加载事件';
+
   return (
     <Screen eyebrow="NOW" title="时间刻度">
       <View style={styles.timeline}>
         <Text style={styles.timelineHint}>过去 6 小时</Text>
         <View style={styles.arc}>
-          <Text style={styles.clock}>12:00</Text>
+          {timer.activeTimer ? <ElapsedTime timer={timer.activeTimer} /> : <CurrentClock />}
+          {timer.activeTimer && !timer.activeTimer.pendingEndAt ? (
+            <Text style={styles.status}>
+              {timer.activeTimer.status === 'paused' ? '已暂停' : '计时中'}
+            </Text>
+          ) : timer.activeTimer?.pendingEndAt ? (
+            <Text style={styles.status}>等待保存</Text>
+          ) : null}
         </View>
         <Text style={styles.timelineHint}>未来 6 小时</Text>
       </View>
 
       <View style={styles.message}>
-        <Text style={styles.messageText}>记录是为了看见，而不是为了控制。</Text>
+        <Text style={styles.messageText}>
+          {timer.activeTimer ? displayedEventName : '记录是为了看见，而不是为了控制。'}
+        </Text>
+        {timer.error ? <Text style={styles.error}>{readableError(timer.error)}</Text> : null}
       </View>
 
       <View style={styles.selector}>
-        <Text style={styles.selectorLabel}>学习 · 计算机 408</Text>
-        <View style={styles.actions}>
-          <Pressable accessibilityRole="button" style={[styles.button, styles.normalButton]}>
-            <Text style={styles.buttonText}>常规计时</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" style={[styles.button, styles.pomodoroButton]}>
-            <Text style={styles.buttonText}>番茄钟</Text>
-          </Pressable>
+        <Text style={styles.selectorLabel}>{displayedEventName}</Text>
+        <View style={styles.eventRow}>
+          {events.slice(0, 5).map((event) => {
+            const selected = event.id === selectedEvent?.id;
+            return (
+              <Pressable
+                key={event.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                disabled={timer.activeTimer !== null}
+                onPress={() => setSelectedEventId(event.id)}
+                style={[styles.eventChip, selected && styles.eventChipSelected]}>
+                <View style={[styles.eventDot, { backgroundColor: event.colorArgb }]} />
+                <Text style={[styles.eventChipText, selected && styles.eventChipTextSelected]}>
+                  {event.name}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
+        {timer.activeTimer?.pendingEndAt ? (
+          <View style={styles.finishCard}>
+            <Text style={styles.finishTitle}>这段时间已经结束</Text>
+            <TextInput
+              accessibilityLabel="本次计时心得"
+              multiline
+              onChangeText={setReflection}
+              placeholder="写一点心得（可选）"
+              placeholderTextColor={colors.textMuted}
+              style={styles.reflectionInput}
+              value={reflection}
+            />
+            {timer.activeTimer.todoId ? (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: completeTodo }}
+                onPress={() => setCompleteTodo((value) => !value)}
+                style={styles.completeRow}>
+                <View style={[styles.confirmCheckbox, completeTodo && styles.checkboxChecked]} />
+                <Text style={styles.completeText}>
+                  同时将“{timer.activeTimer.todoTitle ?? '关联待办'}”标记为完成
+                </Text>
+              </Pressable>
+            ) : null}
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={timer.isMutating}
+                onPress={() => timer.discard()}
+                style={[styles.button, styles.discardButton]}>
+                <Text style={styles.discardText}>丢弃</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={timer.isMutating}
+                onPress={() => timer.save({ reflection, completeTodo })}
+                style={[styles.button, styles.normalButton]}>
+                <Text style={styles.buttonText}>保存记录</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : timer.activeTimer ? (
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={timer.isMutating}
+              onPress={timer.activeTimer.status === 'paused' ? () => timer.resume() : () => timer.pause()}
+              style={[styles.button, styles.pauseButton]}>
+              <Text style={styles.buttonText}>
+                {timer.activeTimer.status === 'paused' ? '继续' : '暂停'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={timer.isMutating}
+              onPress={() => timer.requestEnd()}
+              style={[styles.button, styles.stopButton]}>
+              <Text style={styles.buttonText}>结束</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!selectedEvent || timer.isMutating}
+              onPress={() =>
+                selectedEvent &&
+                timer.start({
+                  mode: 'normal',
+                  eventId: selectedEvent.id,
+                  todoId: singleParam(params.todoId),
+                  todoTitle: singleParam(params.todoTitle),
+                })
+              }
+              style={[styles.button, styles.normalButton]}>
+              <Text style={styles.buttonText}>常规计时</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!selectedEvent || timer.isMutating}
+              onPress={() =>
+                selectedEvent &&
+                timer.start({
+                  mode: 'pomodoro',
+                  eventId: selectedEvent.id,
+                  todoId: singleParam(params.todoId),
+                  todoTitle: singleParam(params.todoTitle),
+                })
+              }
+              style={[styles.button, styles.pomodoroButton]}>
+              <Text style={styles.buttonText}>番茄钟</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </Screen>
   );
+}
+
+function singleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function readableError(error: Error) {
+  const messages: Record<string, string> = {
+    TIMER_ALREADY_ACTIVE: '已有计时正在进行。',
+    TIME_RECORD_OVERLAP: '开始时间与已有记录重叠。',
+    EVENT_NOT_FOUND: '当前事件已不可用，请重新选择。',
+    SYSTEM_CLOCK_MOVED_BACKWARD: '检测到系统时间变化，请重新确认计时。',
+  };
+  return messages[error.message] ?? '操作失败，请稍后重试。';
 }
 
 const styles = StyleSheet.create({
@@ -53,11 +211,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clock: {
-    color: colors.text,
-    fontSize: 36,
-    fontWeight: '300',
-    fontVariant: ['tabular-nums'],
+  status: {
+    color: colors.accent,
+    fontSize: typography.caption,
+    marginTop: spacing.xs,
   },
   message: {
     flex: 1,
@@ -68,6 +225,12 @@ const styles = StyleSheet.create({
   messageText: {
     color: colors.textSecondary,
     fontSize: typography.body,
+    textAlign: 'center',
+  },
+  error: {
+    color: colors.tomato,
+    fontSize: typography.caption,
+    marginTop: spacing.sm,
     textAlign: 'center',
   },
   selector: {
@@ -84,9 +247,83 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
+  eventRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  eventChip: {
+    minHeight: 36,
+    maxWidth: 128,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  eventChipSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentMuted,
+  },
+  eventDot: {
+    width: 8,
+    height: 8,
+    borderRadius: radii.full,
+  },
+  eventChipText: {
+    flexShrink: 1,
+    color: colors.textMuted,
+    fontSize: typography.small,
+  },
+  eventChipTextSelected: {
+    color: colors.text,
+  },
   actions: {
     flexDirection: 'row',
     gap: spacing.sm,
+  },
+  finishCard: {
+    gap: spacing.md,
+  },
+  finishTitle: {
+    color: colors.text,
+    fontSize: typography.body,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  reflectionInput: {
+    minHeight: 88,
+    color: colors.text,
+    fontSize: typography.body,
+    padding: spacing.md,
+    textAlignVertical: 'top',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  completeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  confirmCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.textMuted,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  completeText: {
+    flex: 1,
+    color: colors.textSecondary,
+    fontSize: typography.caption,
   },
   button: {
     flex: 1,
@@ -100,6 +337,21 @@ const styles = StyleSheet.create({
   },
   pomodoroButton: {
     backgroundColor: colors.tomato,
+  },
+  pauseButton: {
+    backgroundColor: colors.accent,
+  },
+  stopButton: {
+    backgroundColor: colors.tomato,
+  },
+  discardButton: {
+    borderWidth: 1,
+    borderColor: colors.tomato,
+  },
+  discardText: {
+    color: colors.tomato,
+    fontSize: typography.body,
+    fontWeight: '700',
   },
   buttonText: {
     color: '#FFFFFF',
