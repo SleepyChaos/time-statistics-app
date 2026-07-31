@@ -3,6 +3,7 @@ import {
   snapBackwardToFiveMinutes,
   snapForwardToFiveMinutes,
   snapInDragDirection,
+  stepByFiveMinutes,
 } from './snap';
 
 describe('five minute snapping', () => {
@@ -22,5 +23,18 @@ describe('five minute snapping', () => {
   it('keeps an existing grid point unchanged', () => {
     expect(snapInDragDirection(fourteenForty, 'later')).toBe(fourteenForty);
     expect(snapInDragDirection(fourteenForty, 'earlier')).toBe(fourteenForty);
+  });
+
+  it('steps from an off-grid timestamp to the adjacent mark', () => {
+    expect(stepByFiveMinutes(fourteenFortyFour, 'later')).toBe(
+      fourteenForty + FIVE_MINUTES_MS,
+    );
+    expect(stepByFiveMinutes(fourteenFortyFour, 'earlier')).toBe(fourteenForty);
+  });
+
+  it('moves a full step when already on the grid', () => {
+    expect(stepByFiveMinutes(fourteenForty, 'later')).toBe(
+      fourteenForty + FIVE_MINUTES_MS,
+    );
   });
 });

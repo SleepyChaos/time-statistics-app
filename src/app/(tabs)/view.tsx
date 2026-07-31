@@ -15,6 +15,7 @@ import {
   startOfLocalDay,
 } from '@/domain/time/local-day';
 import type { BackfillDraft } from '@/domain/history/history-record';
+import { FIVE_MINUTES_MS, snapForwardToFiveMinutes } from '@/domain/time/snap';
 import { BackfillCard } from '@/features/history/backfill-card';
 import { RecordDetailCard } from '@/features/history/record-detail-card';
 import {
@@ -22,6 +23,14 @@ import {
   useHistoryRecordDetail,
 } from '@/features/history/use-history';
 import { useActiveEvents } from '@/features/events/use-active-events';
+import {
+  CreateScheduleCard,
+  ScheduleDetailCard,
+} from '@/features/schedules/schedule-cards';
+import {
+  useScheduleActions,
+  useScheduleDetail,
+} from '@/features/schedules/use-schedules';
 import { DayColumn, DAY_HEIGHT, HOUR_HEIGHT } from '@/features/timeline/day-column';
 import { useTimeline } from '@/features/timeline/use-timeline';
 import { Screen } from '@/shared/components/screen';
@@ -35,6 +44,10 @@ const dateFormatter = new Intl.DateTimeFormat('zh-CN', {
 });
 
 type Subview = 'schedule' | 'statistics';
+interface ScheduleDraft {
+  startsAt: number;
+  endsAt: number;
+}
 
 export default function ViewScreen() {
   const [now, setNow] = useState(() => Date.now());
@@ -43,7 +56,10 @@ export default function ViewScreen() {
   const [subview, setSubview] = useState<Subview>('schedule');
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [backfillDraft, setBackfillDraft] = useState<BackfillDraft | null>(null);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(defaultVisibleStartHour(now) * HOUR_HEIGHT);
   const timeline = useTimeline(rightDayStart, now);
   const {
     createBackfill,
@@ -51,9 +67,13 @@ export default function ViewScreen() {
     error: historyError,
     isMutating: isHistoryMutating,
     prepareBackfill: prepareBackfillMutation,
+    updateRecord,
   } = useHistoryActions();
+  const scheduleActions = useScheduleActions();
+  const scheduleDetail = useScheduleDetail(selectedScheduleId);
   const detail = useHistoryRecordDetail(selectedRecordId);
-  const events = useActiveEvents().data ?? [];
+  const eventsQuery = useActiveEvents();
+  const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
   const leftDayStart = addLocalDays(rightDayStart, -1);
 
   useEffect(() => {
@@ -66,6 +86,8 @@ export default function ViewScreen() {
       setSubview('schedule');
       setSelectedRecordId(null);
       setBackfillDraft(null);
+      setSelectedScheduleId(null);
+      setScheduleDraft(null);
     }, []),
   );
 
@@ -94,20 +116,41 @@ export default function ViewScreen() {
   };
   const openRecord = useCallback((recordId: string) => {
     setBackfillDraft(null);
+    setSelectedScheduleId(null);
+    setScheduleDraft(null);
     setSelectedRecordId(recordId);
+  }, []);
+  const openSchedule = useCallback((scheduleId: string) => {
+    setSelectedRecordId(null);
+    setBackfillDraft(null);
+    setScheduleDraft(null);
+    setSelectedScheduleId(scheduleId);
   }, []);
   const prepareBackfill = useCallback(
     (timestamp: number) => {
       setSelectedRecordId(null);
+      setSelectedScheduleId(null);
+      setScheduleDraft(null);
       prepareBackfillMutation(timestamp, {
         onSuccess: (draft) => setBackfillDraft(draft),
       });
     },
     [prepareBackfillMutation],
   );
+  const prepareSchedule = () => {
+    const centerHours = scrollOffsetRef.current / HOUR_HEIGHT + 3;
+    const startsAt = snapForwardToFiveMinutes(
+      rightDayStart + centerHours * 3_600_000,
+    );
+    setSelectedRecordId(null);
+    setBackfillDraft(null);
+    setSelectedScheduleId(null);
+    setScheduleDraft({ startsAt, endsAt: startsAt + 6 * FIVE_MINUTES_MS });
+  };
 
   const snapshot = timeline.data;
   const utilization = snapshot?.utilization;
+  const selectedSchedule = scheduleDetail.data;
 
   return (
     <Screen
@@ -152,6 +195,9 @@ export default function ViewScreen() {
           <View style={styles.legend}>
             <Text style={styles.legendActual}>■ 实际记录</Text>
             <Text style={styles.legendPlan}>□ 日程</Text>
+            <Pressable accessibilityRole="button" onPress={prepareSchedule}>
+              <Text style={styles.addSchedule}>＋日程</Text>
+            </Pressable>
             <Pressable accessibilityRole="button" onPress={returnToNow}>
               <Text style={styles.nowButton}>回到现在</Text>
             </Pressable>
@@ -162,6 +208,10 @@ export default function ViewScreen() {
               bounces={false}
               contentOffset={{ x: 0, y: defaultVisibleStartHour(now) * HOUR_HEIGHT }}
               nestedScrollEnabled
+              onScroll={(event) => {
+                scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={32}
               showsVerticalScrollIndicator={false}
               style={styles.timelineScroll}>
               <View style={styles.columns}>
@@ -169,6 +219,7 @@ export default function ViewScreen() {
                   dayStart={leftDayStart}
                   onPressBlank={prepareBackfill}
                   onPressRecord={openRecord}
+                  onPressSchedule={openSchedule}
                   schedules={snapshot?.schedules ?? []}
                   slices={snapshot?.slices ?? []}
                 />
@@ -176,6 +227,7 @@ export default function ViewScreen() {
                   dayStart={rightDayStart}
                   onPressBlank={prepareBackfill}
                   onPressRecord={openRecord}
+                  onPressSchedule={openSchedule}
                   schedules={snapshot?.schedules ?? []}
                   slices={snapshot?.slices ?? []}
                 />
@@ -186,6 +238,9 @@ export default function ViewScreen() {
           {timeline.error ? <Text style={styles.error}>时间轴读取失败，请稍后重试。</Text> : null}
           {historyError ? (
             <Text style={styles.error}>{readableHistoryError(historyError)}</Text>
+          ) : null}
+          {scheduleActions.error ? (
+            <Text style={styles.error}>{readableScheduleError(scheduleActions.error)}</Text>
           ) : null}
         </>
       ) : (
@@ -199,6 +254,7 @@ export default function ViewScreen() {
         <View style={styles.cardOverlay}>
           <RecordDetailCard
             detail={detail.data}
+            events={events}
             isMutating={isHistoryMutating}
             onClose={() => setSelectedRecordId(null)}
             onDelete={() => {
@@ -208,6 +264,11 @@ export default function ViewScreen() {
                 });
               }
             }}
+            onUpdate={(input, onSuccess) =>
+              updateRecord(input, {
+                onSuccess,
+              })
+            }
           />
         </View>
       ) : null}
@@ -224,6 +285,44 @@ export default function ViewScreen() {
                 onSuccess: (recordId) => {
                   setBackfillDraft(null);
                   setSelectedRecordId(recordId);
+                },
+              })
+            }
+          />
+        </View>
+      ) : null}
+      {selectedSchedule ? (
+        <View style={styles.cardOverlay}>
+          <ScheduleDetailCard
+            detail={selectedSchedule}
+            isMutating={scheduleActions.isMutating}
+            now={now}
+            onClose={() => setSelectedScheduleId(null)}
+            onToggleOccurred={() =>
+              scheduleActions.markOccurrence(
+                {
+                  id: selectedSchedule.id,
+                  occurrenceStartsAt: selectedSchedule.startsAt,
+                  occurred: selectedSchedule.isMarkedNotOccurred,
+                },
+              )
+            }
+          />
+        </View>
+      ) : null}
+      {scheduleDraft ? (
+        <View style={styles.cardOverlay}>
+          <CreateScheduleCard
+            key={scheduleDraft.startsAt}
+            initialEndsAt={scheduleDraft.endsAt}
+            initialStartsAt={scheduleDraft.startsAt}
+            isMutating={scheduleActions.isMutating}
+            onClose={() => setScheduleDraft(null)}
+            onSave={(input) =>
+              scheduleActions.create(input, {
+                onSuccess: (schedule) => {
+                  setScheduleDraft(null);
+                  setSelectedScheduleId(schedule.id);
                 },
               })
             }
@@ -296,8 +395,17 @@ function readableHistoryError(error: Error) {
     TIME_RECORD_OVERLAP: '这里已有计时记录，不能重复补记。',
     NO_BACKFILL_SPACE: '这里没有可用于补记的空白时间。',
     EVENT_NOT_FOUND: '没有可用事件，请先在设置中创建事件。',
+    INVALID_TIME_RANGE: '结束时间必须晚于开始时间，且不能超过当前时刻。',
   };
   return messages[error.message] ?? '历史记录操作失败，请稍后重试。';
+}
+
+function readableScheduleError(error: Error) {
+  const messages: Record<string, string> = {
+    SCHEDULE_TITLE_REQUIRED: '请输入日程标题。',
+    INVALID_TIME_RANGE: '日程结束时间必须晚于开始时间。',
+  };
+  return messages[error.message] ?? '日程操作失败，请稍后重试。';
 }
 
 const styles = StyleSheet.create({
@@ -378,6 +486,10 @@ const styles = StyleSheet.create({
   },
   legendPlan: {
     color: colors.textSecondary,
+    fontSize: typography.small,
+  },
+  addSchedule: {
+    color: colors.tomato,
     fontSize: typography.small,
   },
   nowButton: {

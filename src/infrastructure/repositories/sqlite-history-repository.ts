@@ -4,6 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   TRASH_RETENTION_MS,
   buildBackfillRange,
+  cropSlicesToRange,
   trashExpiresAt,
   type HistoryRecordDetail,
   type TrashedRecord,
@@ -11,8 +12,9 @@ import {
 import type {
   CreateBackfillInput,
   HistoryRepository,
+  UpdateHistoryRecordInput,
 } from '@/domain/history/history-repository';
-import type { TimerMode } from '@/domain/timer/active-timer';
+import type { TimeSliceKind, TimerMode } from '@/domain/timer/active-timer';
 import { purgeExpiredRecords } from '@/infrastructure/database/maintenance';
 
 interface DetailRow {
@@ -43,6 +45,13 @@ interface EventRow {
   id: string;
   name: string;
   color_argb: string;
+}
+
+interface EditableSliceRow {
+  id: string;
+  kind: TimeSliceKind;
+  started_at: number;
+  ended_at: number;
 }
 
 export class SqliteHistoryRepository implements HistoryRepository {
@@ -81,6 +90,113 @@ export class SqliteHistoryRepository implements HistoryRepository {
       recordId,
     );
     return row ? mapDetail(row) : null;
+  }
+
+  async updateRecord(input: UpdateHistoryRecordInput) {
+    if (input.endsAt <= input.startsAt || input.endsAt > Date.now()) {
+      throw new Error('INVALID_TIME_RANGE');
+    }
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const record = await transaction.getFirstAsync<{ session_id: string }>(
+        `
+          SELECT session_id
+          FROM time_records
+          WHERE id = ? AND deleted_at IS NULL AND ended_at IS NOT NULL
+        `,
+        input.recordId,
+      );
+      if (!record) throw new Error('RECORD_NOT_FOUND');
+
+      const overlap = await findOverlap(
+        transaction,
+        input.startsAt,
+        input.endsAt,
+        input.recordId,
+      );
+      if (overlap) throw new Error('TIME_RECORD_OVERLAP');
+
+      const event = await transaction.getFirstAsync<EventRow>(
+        'SELECT id, name, color_argb FROM events WHERE id = ? AND deleted_at IS NULL',
+        input.eventId,
+      );
+      if (!event) throw new Error('EVENT_NOT_FOUND');
+
+      const sliceRows = await transaction.getAllAsync<EditableSliceRow>(
+        `
+          SELECT id, kind, started_at, ended_at
+          FROM time_slices
+          WHERE record_id = ? AND ended_at IS NOT NULL
+          ORDER BY started_at ASC
+        `,
+        input.recordId,
+      );
+      const slices = cropSlicesToRange(
+        sliceRows.map((slice) => ({
+          id: slice.id,
+          kind: slice.kind,
+          startsAt: slice.started_at,
+          endsAt: slice.ended_at,
+        })),
+        input.startsAt,
+        input.endsAt,
+      );
+      const now = Date.now();
+      await transaction.runAsync('DELETE FROM time_slices WHERE record_id = ?', input.recordId);
+      for (const slice of slices) {
+        await transaction.runAsync(
+          `
+            INSERT INTO time_slices (id, record_id, kind, started_at, ended_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+          slice.id,
+          input.recordId,
+          slice.kind,
+          slice.startsAt,
+          slice.endsAt,
+        );
+      }
+      await transaction.runAsync(
+        `
+          UPDATE time_records SET
+            event_id = ?,
+            event_name_snapshot = ?,
+            event_color_snapshot = ?,
+            started_at = ?,
+            ended_at = ?,
+            updated_at = ?
+          WHERE id = ?
+        `,
+        event.id,
+        event.name,
+        event.color_argb,
+        input.startsAt,
+        input.endsAt,
+        now,
+        input.recordId,
+      );
+      await transaction.runAsync(
+        `
+          UPDATE timer_sessions SET
+            reflection = ?,
+            started_at = (
+              SELECT MIN(started_at) FROM time_records
+              WHERE session_id = ? AND deleted_at IS NULL
+            ),
+            ended_at = (
+              SELECT MAX(ended_at) FROM time_records
+              WHERE session_id = ? AND deleted_at IS NULL
+            ),
+            updated_at = ?
+          WHERE id = ?
+        `,
+        input.reflection.trim() || null,
+        record.session_id,
+        record.session_id,
+        now,
+        record.session_id,
+      );
+    });
   }
 
   async deleteRecord(recordId: string) {

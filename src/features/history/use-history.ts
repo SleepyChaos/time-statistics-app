@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useMemo } from 'react';
 
-import type { CreateBackfillInput } from '@/domain/history/history-repository';
+import type {
+  CreateBackfillInput,
+  UpdateHistoryRecordInput,
+} from '@/domain/history/history-repository';
 import { SqliteHistoryRepository } from '@/infrastructure/repositories/sqlite-history-repository';
 
 const trashQueryKey = ['history', 'trash'] as const;
@@ -38,14 +41,33 @@ export function useHistoryActions() {
     mutationFn: (input: CreateBackfillInput) => repository.createBackfill(input),
     onSuccess: refreshTimeline,
   });
+  const updateMutation = useMutation({
+    mutationFn: (input: UpdateHistoryRecordInput) => repository.updateRecord(input),
+    onSuccess: async (_, input) => {
+      await Promise.all([
+        refreshTimeline(),
+        queryClient.invalidateQueries({
+          queryKey: ['history', 'detail', input.recordId],
+        }),
+      ]);
+    },
+  });
 
   return {
     deleteRecord: deleteMutation.mutate,
     prepareBackfill: prepareMutation.mutate,
     createBackfill: createMutation.mutate,
+    updateRecord: updateMutation.mutate,
     isMutating:
-      deleteMutation.isPending || prepareMutation.isPending || createMutation.isPending,
-    error: deleteMutation.error ?? prepareMutation.error ?? createMutation.error,
+      deleteMutation.isPending ||
+      prepareMutation.isPending ||
+      createMutation.isPending ||
+      updateMutation.isPending,
+    error:
+      deleteMutation.error ??
+      prepareMutation.error ??
+      createMutation.error ??
+      updateMutation.error,
   };
 }
 

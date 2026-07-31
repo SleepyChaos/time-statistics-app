@@ -13,6 +13,7 @@ interface DayColumnProps {
   dayStart: number;
   onPressBlank: (timestamp: number) => void;
   onPressRecord: (recordId: string) => void;
+  onPressSchedule: (scheduleId: string) => void;
   schedules: readonly TimelineSchedule[];
   slices: readonly TimelineSlice[];
 }
@@ -21,6 +22,7 @@ export const DayColumn = memo(function DayColumn({
   dayStart,
   onPressBlank,
   onPressRecord,
+  onPressSchedule,
   schedules,
   slices,
 }: DayColumnProps) {
@@ -102,7 +104,10 @@ export const DayColumn = memo(function DayColumn({
       {visibleSchedules.map(({ interval, schedule }) => (
         <Pressable
           key={schedule.id}
-          onPress={(event) => event.stopPropagation()}
+          onPress={(event) => {
+            event.stopPropagation();
+            onPressSchedule(schedule.id);
+          }}
           style={[
             styles.scheduleBlock,
             blockPosition(interval, dayStart),

@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { ScheduleItem } from '@/domain/schedules/schedule';
+import type { ScheduleDetail, ScheduleItem } from '@/domain/schedules/schedule';
 import type {
   CreateScheduleInput,
   ScheduleRepository,
@@ -23,6 +23,10 @@ interface ScheduleRow {
   updated_at: number;
 }
 
+interface ScheduleDetailRow extends ScheduleRow {
+  occurrence_status: 'occurred' | 'not-occurred' | null;
+}
+
 export class SqliteScheduleRepository implements ScheduleRepository {
   constructor(private readonly database: SQLiteDatabase) {}
 
@@ -41,6 +45,27 @@ export class SqliteScheduleRepository implements ScheduleRepository {
       startsAt,
     );
     return rows.map(mapSchedule);
+  }
+
+  async getDetail(id: string) {
+    const row = await this.database.getFirstAsync<ScheduleDetailRow>(
+      `
+        SELECT
+          schedule_items.*,
+          schedule_occurrence_overrides.status AS occurrence_status
+        FROM schedule_items
+        LEFT JOIN schedule_occurrence_overrides
+          ON schedule_occurrence_overrides.schedule_id = schedule_items.id
+          AND schedule_occurrence_overrides.occurrence_start_at = schedule_items.start_at
+        WHERE schedule_items.id = ? AND schedule_items.deleted_at IS NULL
+      `,
+      id,
+    );
+    if (!row) return null;
+    return {
+      ...mapSchedule(row),
+      isMarkedNotOccurred: row.occurrence_status === 'not-occurred',
+    } satisfies ScheduleDetail;
   }
 
   async create(input: CreateScheduleInput) {
@@ -133,4 +158,3 @@ function mapSchedule(row: ScheduleRow): ScheduleItem {
     updatedAt: row.updated_at,
   };
 }
-

@@ -1,5 +1,6 @@
 import {
   buildBackfillRange,
+  cropSlicesToRange,
   DEFAULT_BACKFILL_DURATION_MS,
   trashExpiresAt,
   TRASH_RETENTION_MS,
@@ -33,5 +34,33 @@ describe('history record rules', () => {
     expect(() => buildBackfillRange(now + 60_000, null, now)).toThrow(
       'BACKFILL_FUTURE_NOT_ALLOWED',
     );
+  });
+
+  it('crops slices while preserving pause boundaries', () => {
+    expect(
+      cropSlicesToRange(
+        [
+          { id: 'a', kind: 'effective', startsAt: 0, endsAt: 10 },
+          { id: 'b', kind: 'paused', startsAt: 10, endsAt: 20 },
+          { id: 'c', kind: 'effective', startsAt: 20, endsAt: 30 },
+        ],
+        5,
+        25,
+      ),
+    ).toEqual([
+      { id: 'a', kind: 'effective', startsAt: 5, endsAt: 10 },
+      { id: 'b', kind: 'paused', startsAt: 10, endsAt: 20 },
+      { id: 'c', kind: 'effective', startsAt: 20, endsAt: 25 },
+    ]);
+  });
+
+  it('extends the outer slices when a range grows', () => {
+    expect(
+      cropSlicesToRange(
+        [{ id: 'a', kind: 'effective', startsAt: 10, endsAt: 20 }],
+        0,
+        30,
+      ),
+    ).toEqual([{ id: 'a', kind: 'effective', startsAt: 0, endsAt: 30 }]);
   });
 });

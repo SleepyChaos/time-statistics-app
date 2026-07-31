@@ -1,4 +1,4 @@
-import type { ScheduleItem } from '@/domain/schedules/schedule';
+import type { ScheduleDetail, ScheduleItem } from '@/domain/schedules/schedule';
 
 export interface CreateScheduleInput {
   title: string;
@@ -10,8 +10,8 @@ export interface CreateScheduleInput {
 
 export interface ScheduleRepository {
   listRange(startsAt: number, endsAt: number): Promise<ScheduleItem[]>;
+  getDetail(id: string): Promise<ScheduleDetail | null>;
   create(input: CreateScheduleInput): Promise<ScheduleItem>;
   updateTime(id: string, startsAt: number, endsAt: number): Promise<void>;
   markOccurrence(id: string, occurrenceStartsAt: number, occurred: boolean): Promise<void>;
 }
-

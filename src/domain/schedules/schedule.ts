@@ -13,3 +13,6 @@ export interface ScheduleItem {
   updatedAt: number;
 }
 
+export interface ScheduleDetail extends ScheduleItem {
+  isMarkedNotOccurred: boolean;
+}
