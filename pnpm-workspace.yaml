@@ -1,0 +1,10 @@
+packages:
+  - .
+
+verifyDepsBeforeRun: warn
+enableGlobalVirtualStore: false
+
+allowBuilds:
+  '@shopify/react-native-skia': false
+  esbuild: true
+  unrs-resolver: true
