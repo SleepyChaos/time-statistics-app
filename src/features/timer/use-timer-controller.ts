@@ -21,6 +21,13 @@ export function useTimerController() {
   const refreshActive = async () => {
     await queryClient.invalidateQueries({ queryKey: activeTimerQueryKey });
   };
+  const refreshAfterFinalize = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: activeTimerQueryKey }),
+      queryClient.invalidateQueries({ queryKey: ['timeline'] }),
+      queryClient.invalidateQueries({ queryKey: ['todos', 'incomplete'] }),
+    ]);
+  };
 
   const startMutation = useMutation({
     mutationFn: (input: StartTimerInput) => engine.start(input),
@@ -46,11 +53,11 @@ export function useTimerController() {
       reflection: string;
       completeTodo: boolean;
     }) => engine.endAndSave(reflection, completeTodo),
-    onSuccess: refreshActive,
+    onSuccess: refreshAfterFinalize,
   });
   const discardMutation = useMutation({
     mutationFn: () => engine.endAndDiscard(),
-    onSuccess: refreshActive,
+    onSuccess: refreshAfterFinalize,
   });
 
   const error =

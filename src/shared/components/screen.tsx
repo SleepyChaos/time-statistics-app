@@ -8,14 +8,22 @@ type ScreenProps = PropsWithChildren<{
   eyebrow: string;
   title: string;
   contentStyle?: ViewStyle;
+  scrollEnabled?: boolean;
 }>;
 
-export function Screen({ children, contentStyle, eyebrow, title }: ScreenProps) {
+export function Screen({
+  children,
+  contentStyle,
+  eyebrow,
+  scrollEnabled = true,
+  title,
+}: ScreenProps) {
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <ScrollView
         contentContainerStyle={[styles.content, contentStyle]}
-        contentInsetAdjustmentBehavior="automatic">
+        contentInsetAdjustmentBehavior="automatic"
+        scrollEnabled={scrollEnabled}>
         <Text style={styles.eyebrow}>{eyebrow}</Text>
         <Text accessibilityRole="header" style={styles.title}>
           {title}

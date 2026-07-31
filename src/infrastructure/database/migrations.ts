@@ -213,4 +213,15 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
       ALTER TABLE active_timer ADD COLUMN pending_end_at INTEGER;
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_sessions_status
+        ON timer_sessions(status, started_at, ended_at);
+      CREATE INDEX IF NOT EXISTS idx_slices_kind_time
+        ON time_slices(kind, started_at, ended_at);
+      CREATE INDEX IF NOT EXISTS idx_schedule_overrides_status
+        ON schedule_occurrence_overrides(status, occurrence_start_at);
+    `,
+  },
 ];
