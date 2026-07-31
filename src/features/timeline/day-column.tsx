@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { addLocalDays } from '@/domain/time/local-day';
 import { clipInterval } from '@/domain/time/interval';
@@ -11,12 +11,16 @@ export const DAY_HEIGHT = HOUR_HEIGHT * 24;
 
 interface DayColumnProps {
   dayStart: number;
+  onPressBlank: (timestamp: number) => void;
+  onPressRecord: (recordId: string) => void;
   schedules: readonly TimelineSchedule[];
   slices: readonly TimelineSlice[];
 }
 
 export const DayColumn = memo(function DayColumn({
   dayStart,
+  onPressBlank,
+  onPressRecord,
   schedules,
   slices,
 }: DayColumnProps) {
@@ -59,16 +63,31 @@ export const DayColumn = memo(function DayColumn({
 
   return (
     <View style={styles.column}>
+      <Pressable
+        accessibilityLabel="在空白时间补记"
+        onPress={(event) =>
+          onPressBlank(dayStart + (event.nativeEvent.locationY / HOUR_HEIGHT) * 3_600_000)
+        }
+        style={StyleSheet.absoluteFill}
+      />
       {Array.from({ length: 24 }, (_, hour) => (
-        <View key={hour} style={[styles.hourLine, { top: hour * HOUR_HEIGHT }]}>
+        <View
+          key={hour}
+          pointerEvents="none"
+          style={[styles.hourLine, { top: hour * HOUR_HEIGHT }]}>
           <Text style={styles.hourText}>{hour.toString().padStart(2, '0')}:00</Text>
         </View>
       ))}
       {visibleSlices.map(({ interval, slice }) => {
         const isEffective = slice.kind === 'effective';
         return (
-          <View
+          <Pressable
             key={slice.id}
+            accessibilityLabel={`${isEffective ? slice.eventName : '暂停'}记录`}
+            onPress={(event) => {
+              event.stopPropagation();
+              onPressRecord(slice.recordId);
+            }}
             style={[
               styles.recordBlock,
               blockPosition(interval, dayStart),
@@ -77,12 +96,13 @@ export const DayColumn = memo(function DayColumn({
             <Text numberOfLines={2} style={styles.recordText}>
               {isEffective ? slice.eventName : '暂停'}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
       {visibleSchedules.map(({ interval, schedule }) => (
-        <View
+        <Pressable
           key={schedule.id}
+          onPress={(event) => event.stopPropagation()}
           style={[
             styles.scheduleBlock,
             blockPosition(interval, dayStart),
@@ -99,7 +119,7 @@ export const DayColumn = memo(function DayColumn({
             style={[styles.scheduleText, { color: schedule.colorArgb }]}>
             {schedule.title}
           </Text>
-        </View>
+        </Pressable>
       ))}
     </View>
   );

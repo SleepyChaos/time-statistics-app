@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { purgeExpiredRecords } from './maintenance';
 import { databaseMigrations } from './migrations';
 
 const DEFAULT_CATEGORY_ID = 'system-category-default';
@@ -34,6 +35,7 @@ export async function initializeDatabase(database: SQLiteDatabase) {
   }
 
   await seedRequiredData(database);
+  await purgeExpiredRecords(database);
 }
 
 async function seedRequiredData(database: SQLiteDatabase) {

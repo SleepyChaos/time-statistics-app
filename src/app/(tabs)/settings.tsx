@@ -1,22 +1,36 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
-const SETTINGS = ['事件与分类', '计时与番茄钟', 'Apple 接入', '通知与外观', '数据与回收区', '关于'];
+const SETTINGS = [
+  { label: '事件与分类' },
+  { label: '计时与番茄钟' },
+  { label: 'Apple 接入' },
+  { label: '通知与外观' },
+  { label: '数据与回收区', route: '/recycle-bin' as const },
+  { label: '关于' },
+];
 
 export default function SettingsScreen() {
+  const router = useRouter();
   return (
     <Screen eyebrow="PREFERENCES" title="设置">
       <View style={styles.group}>
         {SETTINGS.map((item, index) => (
-          <View key={item} style={[styles.row, index > 0 && styles.rowBorder]}>
-            <Text style={styles.label}>{item}</Text>
+          <Pressable
+            key={item.label}
+            accessibilityRole="button"
+            disabled={!item.route}
+            onPress={() => item.route && router.push(item.route)}
+            style={[styles.row, index > 0 && styles.rowBorder]}>
+            <Text style={styles.label}>{item.label}</Text>
             <Text style={styles.chevron}>›</Text>
-          </View>
+          </Pressable>
         ))}
       </View>
-      <Text style={styles.version}>工程骨架 · v0.1.0</Text>
+      <Text style={styles.version}>本地优先 · v0.1.0</Text>
     </Screen>
   );
 }

@@ -14,6 +14,14 @@ import {
   defaultVisibleStartHour,
   startOfLocalDay,
 } from '@/domain/time/local-day';
+import type { BackfillDraft } from '@/domain/history/history-record';
+import { BackfillCard } from '@/features/history/backfill-card';
+import { RecordDetailCard } from '@/features/history/record-detail-card';
+import {
+  useHistoryActions,
+  useHistoryRecordDetail,
+} from '@/features/history/use-history';
+import { useActiveEvents } from '@/features/events/use-active-events';
 import { DayColumn, DAY_HEIGHT, HOUR_HEIGHT } from '@/features/timeline/day-column';
 import { useTimeline } from '@/features/timeline/use-timeline';
 import { Screen } from '@/shared/components/screen';
@@ -33,8 +41,19 @@ export default function ViewScreen() {
   const todayStart = startOfLocalDay(now);
   const [rightDayStart, setRightDayStart] = useState(todayStart);
   const [subview, setSubview] = useState<Subview>('schedule');
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [backfillDraft, setBackfillDraft] = useState<BackfillDraft | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const timeline = useTimeline(rightDayStart, now);
+  const {
+    createBackfill,
+    deleteRecord,
+    error: historyError,
+    isMutating: isHistoryMutating,
+    prepareBackfill: prepareBackfillMutation,
+  } = useHistoryActions();
+  const detail = useHistoryRecordDetail(selectedRecordId);
+  const events = useActiveEvents().data ?? [];
   const leftDayStart = addLocalDays(rightDayStart, -1);
 
   useEffect(() => {
@@ -45,6 +64,8 @@ export default function ViewScreen() {
   useFocusEffect(
     useCallback(() => {
       setSubview('schedule');
+      setSelectedRecordId(null);
+      setBackfillDraft(null);
     }, []),
   );
 
@@ -71,6 +92,19 @@ export default function ViewScreen() {
       animated: true,
     });
   };
+  const openRecord = useCallback((recordId: string) => {
+    setBackfillDraft(null);
+    setSelectedRecordId(recordId);
+  }, []);
+  const prepareBackfill = useCallback(
+    (timestamp: number) => {
+      setSelectedRecordId(null);
+      prepareBackfillMutation(timestamp, {
+        onSuccess: (draft) => setBackfillDraft(draft),
+      });
+    },
+    [prepareBackfillMutation],
+  );
 
   const snapshot = timeline.data;
   const utilization = snapshot?.utilization;
@@ -133,11 +167,15 @@ export default function ViewScreen() {
               <View style={styles.columns}>
                 <DayColumn
                   dayStart={leftDayStart}
+                  onPressBlank={prepareBackfill}
+                  onPressRecord={openRecord}
                   schedules={snapshot?.schedules ?? []}
                   slices={snapshot?.slices ?? []}
                 />
                 <DayColumn
                   dayStart={rightDayStart}
+                  onPressBlank={prepareBackfill}
+                  onPressRecord={openRecord}
                   schedules={snapshot?.schedules ?? []}
                   slices={snapshot?.slices ?? []}
                 />
@@ -146,6 +184,9 @@ export default function ViewScreen() {
           </View>
           {timeline.isLoading ? <Text style={styles.status}>正在读取时间记录…</Text> : null}
           {timeline.error ? <Text style={styles.error}>时间轴读取失败，请稍后重试。</Text> : null}
+          {historyError ? (
+            <Text style={styles.error}>{readableHistoryError(historyError)}</Text>
+          ) : null}
         </>
       ) : (
         <StatisticsSummary
@@ -154,6 +195,41 @@ export default function ViewScreen() {
           ratio={utilization?.ratio ?? 0}
         />
       )}
+      {detail.data ? (
+        <View style={styles.cardOverlay}>
+          <RecordDetailCard
+            detail={detail.data}
+            isMutating={isHistoryMutating}
+            onClose={() => setSelectedRecordId(null)}
+            onDelete={() => {
+              if (selectedRecordId) {
+                deleteRecord(selectedRecordId, {
+                  onSuccess: () => setSelectedRecordId(null),
+                });
+              }
+            }}
+          />
+        </View>
+      ) : null}
+      {backfillDraft ? (
+        <View style={styles.cardOverlay}>
+          <BackfillCard
+            key={backfillDraft.startsAt}
+            draft={backfillDraft}
+            events={events}
+            isMutating={isHistoryMutating}
+            onClose={() => setBackfillDraft(null)}
+            onSave={(input) =>
+              createBackfill(input, {
+                onSuccess: (recordId) => {
+                  setBackfillDraft(null);
+                  setSelectedRecordId(recordId);
+                },
+              })
+            }
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -212,6 +288,16 @@ function Metric({ label, value }: { label: string; value: string }) {
 function formatHours(milliseconds: number) {
   const totalMinutes = Math.floor(milliseconds / 60_000);
   return `${Math.floor(totalMinutes / 60)}小时${totalMinutes % 60}分`;
+}
+
+function readableHistoryError(error: Error) {
+  const messages: Record<string, string> = {
+    BACKFILL_FUTURE_NOT_ALLOWED: '只能补记已经过去的空白时间。',
+    TIME_RECORD_OVERLAP: '这里已有计时记录，不能重复补记。',
+    NO_BACKFILL_SPACE: '这里没有可用于补记的空白时间。',
+    EVENT_NOT_FOUND: '没有可用事件，请先在设置中创建事件。',
+  };
+  return messages[error.message] ?? '历史记录操作失败，请稍后重试。';
 }
 
 const styles = StyleSheet.create({
@@ -322,6 +408,13 @@ const styles = StyleSheet.create({
     color: colors.tomato,
     fontSize: typography.small,
     textAlign: 'center',
+  },
+  cardOverlay: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.lg,
+    zIndex: 20,
   },
   statistics: {
     alignItems: 'center',

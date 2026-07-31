@@ -224,4 +224,11 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         ON schedule_occurrence_overrides(status, occurrence_start_at);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_records_deleted_at
+        ON time_records(deleted_at);
+    `,
+  },
 ];
