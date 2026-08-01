@@ -30,15 +30,29 @@ export function useTodos(stage?: TodoStage) {
       repository.linkEvent(todoId, eventId),
     onSuccess: invalidate,
   });
+  const moveMutation = useMutation({
+    mutationFn: ({ todoId, stage }: { todoId: string; stage: TodoStage }) =>
+      repository.move(todoId, stage),
+    onSuccess: invalidate,
+  });
 
   return {
     todos: query.data ?? [],
     isLoading: query.isLoading,
     isMutating:
-      createMutation.isPending || completeMutation.isPending || linkMutation.isPending,
-    error: query.error ?? createMutation.error ?? completeMutation.error ?? linkMutation.error,
+      createMutation.isPending ||
+      completeMutation.isPending ||
+      linkMutation.isPending ||
+      moveMutation.isPending,
+    error:
+      query.error ??
+      createMutation.error ??
+      completeMutation.error ??
+      linkMutation.error ??
+      moveMutation.error,
     create: createMutation.mutate,
     complete: completeMutation.mutate,
     linkEvent: linkMutation.mutate,
+    move: moveMutation.mutate,
   };
 }

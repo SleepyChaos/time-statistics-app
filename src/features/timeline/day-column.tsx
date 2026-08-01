@@ -15,6 +15,10 @@ import {
   conflictsWithRecords,
   type TimelineDragTarget,
 } from '@/domain/timeline/timeline-edit';
+import {
+  buildScheduleDisplaySegments,
+  type ScheduleDisplaySegment,
+} from '@/domain/timeline/schedule-overlap';
 import type { TimelineSchedule, TimelineSlice } from '@/domain/timeline/timeline';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
@@ -40,6 +44,7 @@ interface DayColumnProps {
   onPressBlank: (timestamp: number) => void;
   onPressRecord: (recordId: string) => void;
   onPressSchedule: (scheduleId: string) => void;
+  onPressScheduleOverlap: (schedules: readonly TimelineSchedule[]) => void;
   schedules: readonly TimelineSchedule[];
   slices: readonly TimelineSlice[];
 }
@@ -52,6 +57,7 @@ export const DayColumn = memo(function DayColumn({
   onPressBlank,
   onPressRecord,
   onPressSchedule,
+  onPressScheduleOverlap,
   schedules,
   slices,
 }: DayColumnProps) {
@@ -81,6 +87,23 @@ export const DayColumn = memo(function DayColumn({
           clipInterval(schedule, { startsAt: dayStart, endsAt: dayEnd }) !== null,
       ),
     [dayEnd, dayStart, schedules],
+  );
+  const scheduleSegments = useMemo(
+    () =>
+      buildScheduleDisplaySegments(visibleSchedules, {
+        startsAt: dayStart,
+        endsAt: dayEnd,
+      }),
+    [dayEnd, dayStart, visibleSchedules],
+  );
+  const overlappedScheduleIds = useMemo(
+    () =>
+      new Set(
+        scheduleSegments
+          .filter((segment) => segment.schedules.length > 1)
+          .flatMap((segment) => segment.schedules.map((schedule) => schedule.id)),
+      ),
+    [scheduleSegments],
   );
 
   return (
@@ -112,7 +135,9 @@ export const DayColumn = memo(function DayColumn({
           record={record}
         />
       ))}
-      {visibleSchedules.map((schedule) => (
+      {visibleSchedules
+        .filter((schedule) => !overlappedScheduleIds.has(schedule.id))
+        .map((schedule) => (
         <EditableScheduleBlock
           key={schedule.id}
           dayEnd={dayEnd}
@@ -122,9 +147,75 @@ export const DayColumn = memo(function DayColumn({
           schedule={schedule}
         />
       ))}
+      {scheduleSegments
+        .filter((segment) =>
+          segment.schedules.some((schedule) => overlappedScheduleIds.has(schedule.id)),
+        )
+        .map((segment) => (
+          <ScheduleSegmentBlock
+            key={segment.key}
+            dayStart={dayStart}
+            onPress={onPressSchedule}
+            onPressOverlap={onPressScheduleOverlap}
+            segment={segment}
+          />
+        ))}
     </View>
   );
 });
+
+function ScheduleSegmentBlock({
+  dayStart,
+  onPress,
+  onPressOverlap,
+  segment,
+}: {
+  dayStart: number;
+  onPress: (scheduleId: string) => void;
+  onPressOverlap: (schedules: readonly TimelineSchedule[]) => void;
+  segment: ScheduleDisplaySegment;
+}) {
+  const { primary } = segment;
+
+  return (
+    <View
+      style={[
+        styles.scheduleBlock,
+        blockPosition(segment, dayStart),
+        {
+          borderColor: primary.colorArgb,
+          backgroundColor: colorWithAlpha(
+            primary.colorArgb,
+            primary.isMarkedNotOccurred ? '26' : '66',
+          ),
+        },
+      ]}>
+      <Pressable
+        accessibilityLabel={primary.title}
+        onPress={(event) => {
+          event.stopPropagation();
+          onPress(primary.id);
+        }}
+        style={StyleSheet.absoluteFill}>
+        <Text numberOfLines={2} style={[styles.scheduleText, { color: primary.colorArgb }]}>
+          {primary.title}
+        </Text>
+      </Pressable>
+      {segment.schedules.length > 1 ? (
+        <Pressable
+          accessibilityLabel={`展开${segment.schedules.length}条重叠日程`}
+          onPress={(event) => {
+            event.stopPropagation();
+            onPressOverlap(segment.schedules);
+          }}
+          hitSlop={8}
+          style={styles.overlapButton}>
+          <Text style={[styles.overlapText, { color: primary.colorArgb }]}>+</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 interface RecordGroup extends TimeInterval {
   recordId: string;
@@ -511,6 +602,22 @@ const styles = StyleSheet.create({
   scheduleText: {
     fontSize: typography.small,
     fontWeight: '700',
+  },
+  overlapButton: {
+    position: 'absolute',
+    right: 2,
+    bottom: 1,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radii.full,
+    backgroundColor: colors.surface,
+  },
+  overlapText: {
+    fontSize: typography.body,
+    fontWeight: '900',
+    lineHeight: 18,
   },
   editingBlock: {
     zIndex: 20,

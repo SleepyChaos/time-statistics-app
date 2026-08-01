@@ -16,6 +16,7 @@ import {
 } from '@/domain/time/local-day';
 import type { BackfillDraft } from '@/domain/history/history-record';
 import type { TimelineDragTarget } from '@/domain/timeline/timeline-edit';
+import type { TimelineSchedule } from '@/domain/timeline/timeline';
 import { FIVE_MINUTES_MS, snapForwardToFiveMinutes } from '@/domain/time/snap';
 import { BackfillCard } from '@/features/history/backfill-card';
 import { RecordDetailCard } from '@/features/history/record-detail-card';
@@ -27,6 +28,7 @@ import { useActiveEvents } from '@/features/events/use-active-events';
 import {
   CreateScheduleCard,
   ScheduleDetailCard,
+  ScheduleOverlapCard,
 } from '@/features/schedules/schedule-cards';
 import {
   useScheduleActions,
@@ -59,6 +61,7 @@ export default function ViewScreen() {
   const [backfillDraft, setBackfillDraft] = useState<BackfillDraft | null>(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState<ScheduleDraft | null>(null);
+  const [overlapSchedules, setOverlapSchedules] = useState<TimelineSchedule[] | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(defaultVisibleStartHour(now) * HOUR_HEIGHT);
   const timeline = useTimeline(rightDayStart, now);
@@ -96,6 +99,7 @@ export default function ViewScreen() {
       setBackfillDraft(null);
       setSelectedScheduleId(null);
       setScheduleDraft(null);
+      setOverlapSchedules(null);
     }, []),
   );
 
@@ -126,19 +130,29 @@ export default function ViewScreen() {
     setBackfillDraft(null);
     setSelectedScheduleId(null);
     setScheduleDraft(null);
+    setOverlapSchedules(null);
     setSelectedRecordId(recordId);
   }, []);
   const openSchedule = useCallback((scheduleId: string) => {
     setSelectedRecordId(null);
     setBackfillDraft(null);
     setScheduleDraft(null);
+    setOverlapSchedules(null);
     setSelectedScheduleId(scheduleId);
+  }, []);
+  const openScheduleOverlap = useCallback((schedules: readonly TimelineSchedule[]) => {
+    setSelectedRecordId(null);
+    setBackfillDraft(null);
+    setSelectedScheduleId(null);
+    setScheduleDraft(null);
+    setOverlapSchedules([...schedules]);
   }, []);
   const prepareBackfill = useCallback(
     (timestamp: number) => {
       setSelectedRecordId(null);
       setSelectedScheduleId(null);
       setScheduleDraft(null);
+      setOverlapSchedules(null);
       prepareBackfillMutation(timestamp, {
         onSuccess: (draft) => setBackfillDraft(draft),
       });
@@ -153,6 +167,7 @@ export default function ViewScreen() {
     setSelectedRecordId(null);
     setBackfillDraft(null);
     setSelectedScheduleId(null);
+    setOverlapSchedules(null);
     setScheduleDraft({ startsAt, endsAt: startsAt + 6 * FIVE_MINUTES_MS });
   };
   const changeRecordRange = useCallback(
@@ -243,6 +258,7 @@ export default function ViewScreen() {
                   onPressBlank={prepareBackfill}
                   onPressRecord={openRecord}
                   onPressSchedule={openSchedule}
+                  onPressScheduleOverlap={openScheduleOverlap}
                   schedules={snapshot?.schedules ?? []}
                   slices={snapshot?.slices ?? []}
                 />
@@ -254,6 +270,7 @@ export default function ViewScreen() {
                   onPressBlank={prepareBackfill}
                   onPressRecord={openRecord}
                   onPressSchedule={openSchedule}
+                  onPressScheduleOverlap={openScheduleOverlap}
                   schedules={snapshot?.schedules ?? []}
                   slices={snapshot?.slices ?? []}
                 />
@@ -276,6 +293,18 @@ export default function ViewScreen() {
           ratio={utilization?.ratio ?? 0}
         />
       )}
+      {overlapSchedules ? (
+        <View style={styles.cardOverlay}>
+          <ScheduleOverlapCard
+            onClose={() => setOverlapSchedules(null)}
+            onSelect={(scheduleId) => {
+              setOverlapSchedules(null);
+              setSelectedScheduleId(scheduleId);
+            }}
+            schedules={overlapSchedules}
+          />
+        </View>
+      ) : null}
       {detail.data ? (
         <View style={styles.cardOverlay}>
           <RecordDetailCard

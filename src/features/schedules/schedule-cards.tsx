@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ScheduleDetail } from '@/domain/schedules/schedule';
 import { stepByFiveMinutes } from '@/domain/time/snap';
+import type { TimelineSchedule } from '@/domain/timeline/timeline';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
 const SCHEDULE_COLORS = ['#7C83FF', '#FF5A5F', '#4DB6AC', '#FFB74D'] as const;
@@ -135,6 +136,46 @@ export function ScheduleDetailCard({
         </Text>
       </Pressable>
       {!canMark ? <Text style={styles.hint}>日程开始后才可以修改发生状态。</Text> : null}
+    </View>
+  );
+}
+
+export function ScheduleOverlapCard({
+  onClose,
+  onSelect,
+  schedules,
+}: {
+  onClose: () => void;
+  onSelect: (scheduleId: string) => void;
+  schedules: readonly TimelineSchedule[];
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.header}>
+        <Text style={styles.title}>这里有 {schedules.length} 条日程</Text>
+        <Pressable accessibilityLabel="关闭重叠日程列表" onPress={onClose} hitSlop={8}>
+          <Text style={styles.close}>×</Text>
+        </Pressable>
+      </View>
+      {schedules.map((schedule) => (
+        <Pressable
+          key={schedule.id}
+          accessibilityLabel={`查看${schedule.title}`}
+          onPress={() => onSelect(schedule.id)}
+          style={styles.overlapRow}>
+          <View style={[styles.dot, { backgroundColor: schedule.colorArgb }]} />
+          <View style={styles.heading}>
+            <Text style={[styles.overlapTitle, { color: schedule.colorArgb }]}>
+              {schedule.title}
+            </Text>
+            <Text style={styles.source}>
+              {dateFormatter.format(schedule.startsAt)} — {dateFormatter.format(schedule.endsAt)}
+              {schedule.isMarkedNotOccurred ? ' · 未发生' : ''}
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -294,6 +335,23 @@ const styles = StyleSheet.create({
   hint: {
     color: colors.textMuted,
     fontSize: typography.small,
+  },
+  overlapRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  overlapTitle: {
+    fontSize: typography.caption,
+    fontWeight: '800',
+  },
+  chevron: {
+    color: colors.textMuted,
+    fontSize: 24,
   },
   error: {
     color: colors.tomato,

@@ -1,9 +1,11 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { findTodoDropStage, type TodoDropTarget } from '@/domain/todos/drop-target';
 import { todoStageLabels, todoStages, type TodoStage } from '@/domain/todos/todo';
 import { useActiveEvents } from '@/features/events/use-active-events';
+import { DraggableTodoSurface } from '@/features/todos/draggable-todo-surface';
 import { useTodos } from '@/features/todos/use-todos';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
@@ -23,7 +25,11 @@ export default function TodosScreen() {
   const [filter, setFilter] = useState<StageFilter>('all');
   const [draft, setDraft] = useState('');
   const [linkingTodoId, setLinkingTodoId] = useState<string | null>(null);
+  const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
+  const categoryRefs = useRef<Partial<Record<TodoStage, View | null>>>({});
+  const dropTargets = useRef<TodoDropTarget[]>([]);
   const todos = useTodos(filter === 'all' ? undefined : filter);
+  const moveTodo = todos.move;
   const events = useActiveEvents().data ?? [];
   const grouped = useMemo(
     () =>
@@ -46,6 +52,25 @@ export default function TodosScreen() {
       { onSuccess: () => setDraft('') },
     );
   };
+  const measureDropTargets = useCallback(() => {
+    dropTargets.current = [];
+    for (const stage of todoStages.filter((item) => item !== 'unclassified')) {
+      categoryRefs.current[stage]?.measureInWindow((x, y, width, height) => {
+        dropTargets.current = [
+          ...dropTargets.current.filter((target) => target.stage !== stage),
+          { stage, x, y, width, height },
+        ];
+      });
+    }
+  }, []);
+  const dropTodo = useCallback(
+    (todoId: string, absoluteX: number, absoluteY: number) => {
+      const stage = findTodoDropStage(dropTargets.current, absoluteX, absoluteY);
+      setDraggingTodoId(null);
+      if (stage) moveTodo({ todoId, stage });
+    },
+    [moveTodo],
+  );
 
   return (
     <Screen eyebrow="REMINDERS" title="待办事项" contentStyle={styles.content}>
@@ -53,10 +78,17 @@ export default function TodosScreen() {
         {FILTERS.map((item) => (
           <Pressable
             key={item.key}
+            ref={(node) => {
+              if (item.key !== 'all') categoryRefs.current[item.key] = node;
+            }}
             accessibilityRole="button"
             accessibilityState={{ selected: filter === item.key }}
             onPress={() => setFilter(item.key)}
-            style={[styles.category, filter === item.key && styles.categoryActive]}>
+            style={[
+              styles.category,
+              filter === item.key && styles.categoryActive,
+              draggingTodoId && item.key !== 'all' && styles.categoryDropReady,
+            ]}>
             <Text
               style={[styles.categoryText, filter === item.key && styles.categoryTextActive]}>
               {item.label}
@@ -68,8 +100,21 @@ export default function TodosScreen() {
         {grouped.map((group) => (
           <View key={group.stage} style={styles.group}>
             <Text style={styles.groupTitle}>{todoStageLabels[group.stage]}</Text>
-            {group.items.map((todo) => (
-              <View key={todo.id}>
+            {group.items.map((todo) => {
+              const canDrag = filter === 'all' && todo.stage === 'unclassified';
+              return (
+              <DraggableTodoSurface
+                key={todo.id}
+                enabled={canDrag}
+                onDragStart={() => {
+                  setLinkingTodoId(null);
+                  setDraggingTodoId(todo.id);
+                  measureDropTargets();
+                }}
+                onDragFinish={() => setDraggingTodoId(null)}
+                onDrop={(absoluteX, absoluteY) =>
+                  dropTodo(todo.id, absoluteX, absoluteY)
+                }>
                 <View style={styles.todo}>
                   <Pressable
                     accessibilityLabel={`完成${todo.title}`}
@@ -83,6 +128,7 @@ export default function TodosScreen() {
                     }
                     delayLongPress={350}
                     onLongPress={() => {
+                      if (canDrag) return;
                       if (!todo.eventId) {
                         setLinkingTodoId(todo.id);
                         return;
@@ -102,7 +148,11 @@ export default function TodosScreen() {
                     style={styles.todoBody}>
                     <Text style={styles.todoTitle}>{todo.title}</Text>
                     <Text style={styles.todoMeta}>
-                      {todo.eventName ? `关联 · ${todo.eventName}` : '未关联计时事件'}
+                      {canDrag
+                        ? '长按拖入左侧分类'
+                        : todo.eventName
+                          ? `关联 · ${todo.eventName}`
+                          : '未关联计时事件'}
                     </Text>
                   </Pressable>
                 </View>
@@ -127,8 +177,9 @@ export default function TodosScreen() {
                     ))}
                   </View>
                 ) : null}
-              </View>
-            ))}
+              </DraggableTodoSurface>
+              );
+            })}
           </View>
         ))}
         {todos.isLoading ? <Text style={styles.empty}>正在读取本地待办…</Text> : null}
@@ -178,6 +229,11 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
   },
   categoryActive: {
+    backgroundColor: colors.accentMuted,
+  },
+  categoryDropReady: {
+    borderWidth: 1,
+    borderColor: colors.accent,
     backgroundColor: colors.accentMuted,
   },
   categoryText: {
