@@ -67,7 +67,7 @@ async function seedRequiredData(database: SQLiteDatabase) {
     await transaction.runAsync(
       `INSERT OR IGNORE INTO app_settings (key, value_json, updated_at)
        VALUES (?, ?, ?)`,
-      'pomodoro',
+      'pomodoroConfig',
       JSON.stringify({
         focusMinutes: 25,
         shortBreakMinutes: 5,
@@ -76,5 +76,23 @@ async function seedRequiredData(database: SQLiteDatabase) {
       }),
       now,
     );
+    const contentItems = [
+      ['content-quote-1', 'quote', '记录是为了看见，而不是为了控制。', null, 0],
+      ['content-quote-2', 'quote', '稳定地留下证据，胜过模糊地依赖感觉。', null, 1],
+      ['content-suggestion-1', 'suggestion', '先记录下一段真实投入，再决定是否调整计划。', null, 2],
+      ['content-suggestion-2', 'suggestion', '如果开始很困难，就只承诺专注十五分钟。', null, 3],
+      ['content-number-1', 'suggestion', '推荐数目：今天优先保留 3 件真正重要的事。', null, 4],
+      ['content-number-2', 'suggestion', '推荐数目：每 90 分钟检查一次当前方向。', null, 5],
+      ['content-word-1', 'word', 'Deliberate · 有意识的', null, 6],
+      ['content-word-2', 'word', 'Momentum · 持续推进的势能', null, 7],
+    ] as const;
+    for (const item of contentItems) {
+      await transaction.runAsync(
+        `INSERT OR IGNORE INTO content_pool (
+          id, kind, content, attribution, sort_order, is_enabled
+        ) VALUES (?, ?, ?, ?, ?, 1)`,
+        ...item,
+      );
+    }
   });
 }

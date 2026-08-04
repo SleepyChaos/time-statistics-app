@@ -15,9 +15,17 @@ export default function PreferencesScreen() {
 
   const toggle = (key: AppPreferenceKey, value: boolean) => model.setPreference({ key, value });
   const changePomodoro = (key: keyof typeof preferences.pomodoroConfig, delta: number) => {
+    const limits = {
+      focusMinutes: [1, 180],
+      shortBreakMinutes: [1, 60],
+      longBreakMinutes: [1, 120],
+      longBreakEvery: [1, 12],
+    } as const;
+    const [minimum, maximum] = limits[key];
+    const nextValue = Math.max(minimum, Math.min(maximum, preferences.pomodoroConfig[key] + delta));
     model.setPreference({
       key: 'pomodoroConfig',
-      value: { ...preferences.pomodoroConfig, [key]: preferences.pomodoroConfig[key] + delta },
+      value: { ...preferences.pomodoroConfig, [key]: nextValue },
     });
   };
 

@@ -24,6 +24,7 @@ export interface ActiveTimer {
   phase: PomodoroPhase | null;
   round: number;
   phaseStartedAt: number;
+  phaseElapsedMs: number;
   accumulatedEffectiveMs: number;
   accumulatedPausedMs: number;
   lastPersistedAt: number;
@@ -49,8 +50,8 @@ export function pomodoroPhaseDurationMs(timer: ActiveTimer) {
 
 export function pomodoroRemainingMs(timer: ActiveTimer, now: number) {
   if (timer.mode !== 'pomodoro') return null;
-  const elapsed = timer.status === 'paused' ? 0 : Math.max(0, now - timer.phaseStartedAt);
-  return pomodoroPhaseDurationMs(timer) - elapsed;
+  const liveElapsed = timer.status === 'running' ? Math.max(0, now - timer.phaseStartedAt) : 0;
+  return pomodoroPhaseDurationMs(timer) - timer.phaseElapsedMs - liveElapsed;
 }
 
 export function nextPomodoroPhase(timer: ActiveTimer): PomodoroPhase {

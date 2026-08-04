@@ -37,6 +37,10 @@ export function compareTodos(left: TodoItem, right: TodoItem) {
   return left.createdAt - right.createdAt;
 }
 
-export function recurrenceForTodoStage(stage: TodoStage) {
-  return stage === 'habit' ? JSON.stringify({ frequency: 'daily', interval: 1 }) : null;
+export function recurrenceForTodoStage(
+  stage: TodoStage,
+  requested: 'daily' | 'weekly' | null = null,
+) {
+  const frequency = stage === 'habit' ? 'daily' : requested;
+  return frequency ? JSON.stringify({ frequency, interval: 1 }) : null;
 }

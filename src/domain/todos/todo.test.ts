@@ -45,5 +45,10 @@ describe('todo recurrence', () => {
       interval: 1,
     });
     expect(recurrenceForTodoStage('buffer')).toBeNull();
+    expect(JSON.parse(recurrenceForTodoStage('future', 'weekly') ?? '{}')).toEqual({
+      frequency: 'weekly',
+      interval: 1,
+    });
+    expect(JSON.parse(recurrenceForTodoStage('habit', 'weekly') ?? '{}').frequency).toBe('daily');
   });
 });

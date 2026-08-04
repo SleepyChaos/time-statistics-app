@@ -12,6 +12,7 @@ import { RollingTimeArc } from '@/features/timer/rolling-time-arc';
 import { useActiveEvents } from '@/features/events/use-active-events';
 import { useTodos } from '@/features/todos/use-todos';
 import { useAppSettings } from '@/features/settings/use-app-settings';
+import { useIdleContent } from '@/features/timer/use-idle-content';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 import { pomodoroRemainingMs } from '@/domain/timer/active-timer';
@@ -35,6 +36,7 @@ export default function TimerScreen() {
   const [backdatedStartAt, setBackdatedStartAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [openedAt] = useState(() => Date.now());
+  const idleContent = useIdleContent(now);
   const requestedEventId = singleParam(params.eventId);
 
   const selectedEvent = useMemo(
@@ -87,7 +89,7 @@ export default function TimerScreen() {
 
       <View style={styles.message}>
         <Text style={styles.messageText}>
-          {timer.activeTimer ? displayedEventName : '记录是为了看见，而不是为了控制。'}
+          {timer.activeTimer ? displayedEventName : (idleContent?.content ?? '记录是为了看见，而不是为了控制。')}
         </Text>
         {timer.activeTimer && timer.activeTimer.lastPersistedAt < openedAt - 5_000 ? (
           <Text style={styles.recoveryHint}>

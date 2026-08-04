@@ -20,6 +20,7 @@ interface ActiveTimerRow {
   todo_link_id: string | null;
   todo_title_snapshot: string | null;
   phase_started_at: number;
+  phase_elapsed_ms: number;
   accumulated_effective_ms: number;
   accumulated_paused_ms: number;
   pomodoro_phase: PomodoroPhase | null;
@@ -161,12 +162,14 @@ export class SqliteTimerEngine {
         `UPDATE active_timer SET
           state = 'paused',
           phase_started_at = ?,
+          phase_elapsed_ms = phase_elapsed_ms + ?,
           accumulated_effective_ms = accumulated_effective_ms + ?,
           accumulated_paused_ms = accumulated_paused_ms + ?,
           last_persisted_at = ?,
           current_slice_id = ?
          WHERE singleton_id = 1`,
         at,
+        active.mode === 'pomodoro' ? delta : 0,
         slice.kind === 'effective' ? delta : 0,
         slice.kind === 'effective' ? 0 : delta,
         at,
@@ -241,6 +244,7 @@ export class SqliteTimerEngine {
           event_name_snapshot = ?,
           event_color_snapshot = ?,
           phase_started_at = ?,
+          phase_elapsed_ms = phase_elapsed_ms + ?,
           accumulated_effective_ms = accumulated_effective_ms + ?,
           accumulated_paused_ms = accumulated_paused_ms + ?,
           last_persisted_at = ?,
@@ -251,6 +255,7 @@ export class SqliteTimerEngine {
         event.name,
         event.color_argb,
         at,
+        active.mode === 'pomodoro' && active.state === 'running' ? delta : 0,
         currentSlice.kind === 'effective' ? delta : 0,
         currentSlice.kind === 'effective' ? 0 : delta,
         at,
@@ -273,6 +278,15 @@ export class SqliteTimerEngine {
         active.session_id,
       );
       const config = parsePomodoroConfig(session?.pomodoro_config_snapshot ?? null);
+      if (active.state !== 'running') {
+        throw new Error('TIMER_NOT_RUNNING');
+      }
+      const delta = safeDelta(active.phase_started_at, at);
+      const phaseElapsedMs = active.phase_elapsed_ms + delta;
+      const phaseDurationMs = durationForPhase(active.pomodoro_phase, config);
+      if (phaseElapsedMs < phaseDurationMs) {
+        throw new Error('POMODORO_PHASE_NOT_FINISHED');
+      }
       const nextPhase: PomodoroPhase =
         active.pomodoro_phase === 'focus'
           ? active.pomodoro_round % config.longBreakEvery === 0
@@ -281,7 +295,6 @@ export class SqliteTimerEngine {
           : 'focus';
       const nextRound = active.pomodoro_phase === 'focus' ? active.pomodoro_round : active.pomodoro_round + 1;
       const currentSlice = await loadSlice(transaction, active.current_slice_id);
-      const delta = safeDelta(active.phase_started_at, at);
       const nextSliceId = Crypto.randomUUID();
       await closeSlice(transaction, active.current_slice_id, at);
       await insertSlice(
@@ -293,7 +306,7 @@ export class SqliteTimerEngine {
       );
       await transaction.runAsync(
         `UPDATE active_timer SET
-          state = 'running', pomodoro_phase = ?, pomodoro_round = ?, phase_started_at = ?,
+          state = 'running', pomodoro_phase = ?, pomodoro_round = ?, phase_started_at = ?, phase_elapsed_ms = 0,
           accumulated_effective_ms = accumulated_effective_ms + ?,
           accumulated_paused_ms = accumulated_paused_ms + ?,
           last_persisted_at = ?, current_slice_id = ?
@@ -329,11 +342,13 @@ export class SqliteTimerEngine {
         `UPDATE active_timer SET
           state = 'paused',
           pending_end_at = ?,
+          phase_elapsed_ms = phase_elapsed_ms + ?,
           accumulated_effective_ms = accumulated_effective_ms + ?,
           accumulated_paused_ms = accumulated_paused_ms + ?,
           last_persisted_at = ?
          WHERE singleton_id = 1`,
         at,
+        active.mode === 'pomodoro' && active.state === 'running' ? delta : 0,
         currentSlice.kind === 'effective' ? delta : 0,
         currentSlice.kind === 'effective' ? 0 : delta,
         at,
@@ -523,6 +538,7 @@ function mapActiveTimer(row: ActiveTimerRow): ActiveTimer {
     phase: row.pomodoro_phase,
     round: row.pomodoro_round,
     phaseStartedAt: row.phase_started_at,
+    phaseElapsedMs: row.phase_elapsed_ms,
     accumulatedEffectiveMs: row.accumulated_effective_ms,
     accumulatedPausedMs: row.accumulated_paused_ms,
     lastPersistedAt: row.last_persisted_at,
@@ -545,4 +561,14 @@ function parsePomodoroConfig(value: string | null): PomodoroConfig {
   } catch {
     return DEFAULT_POMODORO_CONFIG;
   }
+}
+
+function durationForPhase(phase: PomodoroPhase, config: PomodoroConfig) {
+  const minutes =
+    phase === 'focus'
+      ? config.focusMinutes
+      : phase === 'long-break'
+        ? config.longBreakMinutes
+        : config.shortBreakMinutes;
+  return minutes * 60_000;
 }

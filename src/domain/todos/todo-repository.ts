@@ -5,6 +5,7 @@ export interface CreateTodoInput {
   stage?: TodoStage;
   dueAt?: number | null;
   dueHasTime?: boolean;
+  recurrence?: 'daily' | 'weekly' | null;
 }
 
 export interface TodoRepository {
@@ -14,4 +15,3 @@ export interface TodoRepository {
   setCompleted(todoId: string, isCompleted: boolean): Promise<void>;
   linkEvent(todoId: string, eventId: string | null): Promise<void>;
 }
-

@@ -231,4 +231,10 @@ export const databaseMigrations: readonly DatabaseMigration[] = [
         ON time_records(deleted_at);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      ALTER TABLE active_timer ADD COLUMN phase_elapsed_ms INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];

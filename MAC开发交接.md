@@ -19,9 +19,9 @@ pnpm ios
 预期 Windows 基线：
 
 - Expo SDK 57、React Native 0.86、React 19；
-- 14 个 Jest 测试套件、46 项测试通过；
-- iOS JavaScript Bundle 通过，最近一次打包 1838 个模块；
-- SQLite migration 当前版本为 v5；
+- 14 个 Jest 测试套件、47 项测试通过；
+- iOS JavaScript Bundle 通过，最近一次打包 1839 个模块；
+- SQLite migration 当前版本为 v6；
 - 四个一级页面及本地业务闭环已经完成。
 
 ## 2. 必须在 Mac 完成的原生工作

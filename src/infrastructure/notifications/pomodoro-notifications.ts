@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { pomodoroPhaseDurationMs, type ActiveTimer } from '@/domain/timer/active-timer';
+import { pomodoroRemainingMs, type ActiveTimer } from '@/domain/timer/active-timer';
 
 const SETTING_KEY = 'active_pomodoro_notification_id';
 
@@ -19,7 +19,7 @@ export class PomodoroNotificationScheduler {
     const soundEnabled = soundSetting ? JSON.parse(soundSetting.value_json) !== false : true;
     const seconds = Math.max(
       1,
-      Math.ceil((timer.phaseStartedAt + pomodoroPhaseDurationMs(timer) - Date.now()) / 1_000),
+      Math.ceil((pomodoroRemainingMs(timer, Date.now()) ?? 0) / 1_000),
     );
     const identifier = await Notifications.scheduleNotificationAsync({
       content: {

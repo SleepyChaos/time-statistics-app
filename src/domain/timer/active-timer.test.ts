@@ -18,6 +18,7 @@ const baseTimer: ActiveTimer = {
   phase: 'focus',
   round: 1,
   phaseStartedAt: 1_000,
+  phaseElapsedMs: 0,
   accumulatedEffectiveMs: 0,
   accumulatedPausedMs: 0,
   lastPersistedAt: 1_000,
@@ -45,5 +46,14 @@ describe('pomodoro display rules', () => {
 
   it('returns to focus after either break', () => {
     expect(nextPomodoroPhase({ ...baseTimer, phase: 'short-break' })).toBe('focus');
+  });
+
+  it('keeps the current phase progress while paused', () => {
+    expect(
+      pomodoroRemainingMs(
+        { ...baseTimer, status: 'paused', phaseElapsedMs: 10 * 60_000 },
+        99_000_000,
+      ),
+    ).toBe(15 * 60_000);
   });
 });

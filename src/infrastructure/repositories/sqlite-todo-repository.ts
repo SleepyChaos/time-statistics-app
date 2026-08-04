@@ -60,7 +60,7 @@ export class SqliteTodoRepository implements TodoRepository {
     const id = Crypto.randomUUID();
     const now = Date.now();
     const stage = input.stage ?? 'buffer';
-    const recurrenceSnapshot = recurrenceForTodoStage(stage);
+    const recurrenceSnapshot = recurrenceForTodoStage(stage, input.recurrence ?? null);
     await this.database.runAsync(
       `
         INSERT INTO todo_items (

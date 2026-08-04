@@ -25,7 +25,11 @@ export default function TodosScreen() {
   const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState<StageFilter | null>(null);
   const [draft, setDraft] = useState('');
-  const [dueOffsetDays, setDueOffsetDays] = useState<number | null>(null);
+  const [dueChoice, setDueChoice] = useState<number | 'custom' | null>(null);
+  const [customDueDate, setCustomDueDate] = useState('');
+  const [customDueTime, setCustomDueTime] = useState('');
+  const [recurrence, setRecurrence] = useState<'daily' | 'weekly' | null>(null);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [linkingTodoId, setLinkingTodoId] = useState<string | null>(null);
   const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
   const viewState = useTodoViewState();
@@ -65,16 +69,31 @@ export default function TodosScreen() {
 
   const create = () => {
     if (!draft.trim()) return;
+    const customDue = dueChoice === 'custom' ? parseCustomDue(customDueDate, customDueTime) : null;
+    if (dueChoice === 'custom' && customDue === null) {
+      setComposerError('请输入有效日期（YYYY-MM-DD），时间可选（HH:mm）。');
+      return;
+    }
+    setComposerError(null);
     todos.create(
       {
         title: draft,
         stage: filter === 'all' ? 'buffer' : filter,
-        dueAt: dueOffsetDays === null ? null : dueDateFromNow(dueOffsetDays),
-        dueHasTime: false,
+        dueAt:
+          dueChoice === 'custom'
+            ? customDue
+            : dueChoice === null
+              ? null
+              : dueDateFromNow(dueChoice),
+        dueHasTime: dueChoice === 'custom' && Boolean(customDueTime.trim()),
+        recurrence: filter === 'habit' ? 'daily' : recurrence,
       },
       { onSuccess: () => {
         setDraft('');
-        setDueOffsetDays(null);
+        setDueChoice(null);
+        setCustomDueDate('');
+        setCustomDueTime('');
+        setRecurrence(null);
       } },
     );
   };
@@ -259,14 +278,41 @@ export default function TodosScreen() {
             <Pressable
               key={option.label}
               accessibilityRole="button"
-              accessibilityState={{ selected: dueOffsetDays === option.value }}
-              onPress={() => setDueOffsetDays(option.value)}
-              style={[styles.dueOption, dueOffsetDays === option.value && styles.dueOptionSelected]}>
+              accessibilityState={{ selected: dueChoice === option.value }}
+              onPress={() => setDueChoice(option.value)}
+              style={[styles.dueOption, dueChoice === option.value && styles.dueOptionSelected]}>
               <Text style={styles.dueOptionText}>{option.label}</Text>
             </Pressable>
           ))}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: dueChoice === 'custom' }}
+            onPress={() => setDueChoice('custom')}
+            style={[styles.dueOption, dueChoice === 'custom' && styles.dueOptionSelected]}>
+            <Text style={styles.dueOptionText}>自定日期</Text>
+          </Pressable>
         </View>
+        {dueChoice === 'custom' ? (
+          <View style={styles.customDueRow}>
+            <TextInput accessibilityLabel="截止日期" onChangeText={setCustomDueDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.customDueInput} value={customDueDate} />
+            <TextInput accessibilityLabel="截止时间" onChangeText={setCustomDueTime} placeholder="HH:mm（可选）" placeholderTextColor={colors.textMuted} style={styles.customDueInput} value={customDueTime} />
+          </View>
+        ) : null}
+        {filter !== 'habit' ? (
+          <View style={styles.duePicker}>
+            {[
+              { label: '不重复', value: null },
+              { label: '每日重复', value: 'daily' as const },
+              { label: '每周重复', value: 'weekly' as const },
+            ].map((option) => (
+              <Pressable key={option.label} accessibilityRole="button" accessibilityState={{ selected: recurrence === option.value }} onPress={() => setRecurrence(option.value)} style={[styles.dueOption, recurrence === option.value && styles.dueOptionSelected]}>
+                <Text style={styles.dueOptionText}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {filter === 'habit' ? <Text style={styles.habitHint}>日常习惯会自动设为每日重复。</Text> : null}
+        {composerError ? <Text style={styles.composerError}>{composerError}</Text> : null}
       </View>
     </Screen>
   );
@@ -280,6 +326,27 @@ function dueDateFromNow(offsetDays: number) {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
   date.setHours(23, 59, 0, 0);
+  return date.getTime();
+}
+
+function parseCustomDue(dateValue: string, timeValue: string) {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue.trim());
+  if (!dateMatch) return null;
+  const timeMatch = timeValue.trim() ? /^(\d{1,2}):(\d{2})$/.exec(timeValue.trim()) : null;
+  if (timeValue.trim() && !timeMatch) return null;
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const hour = timeMatch ? Number(timeMatch[1]) : 23;
+  const minute = timeMatch ? Number(timeMatch[2]) : 59;
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    hour > 23 ||
+    minute > 59
+  ) return null;
   return date.getTime();
 }
 
@@ -445,6 +512,23 @@ const styles = StyleSheet.create({
   },
   habitHint: {
     color: colors.textMuted,
+    fontSize: typography.small,
+  },
+  customDueRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  customDueInput: {
+    flex: 1,
+    minHeight: 40,
+    color: colors.text,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  composerError: {
+    color: colors.tomato,
     fontSize: typography.small,
   },
 });
