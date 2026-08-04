@@ -37,6 +37,8 @@ import {
 import { DayColumn, DAY_HEIGHT, HOUR_HEIGHT } from '@/features/timeline/day-column';
 import { useTimeline } from '@/features/timeline/use-timeline';
 import { StatisticsDashboard } from '@/features/statistics/statistics-dashboard';
+import { useTodos } from '@/features/todos/use-todos';
+import type { TodoItem } from '@/domain/todos/todo';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
@@ -66,6 +68,7 @@ export default function ViewScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(defaultVisibleStartHour(now) * HOUR_HEIGHT);
   const timeline = useTimeline(rightDayStart, now);
+  const todosModel = useTodos();
   const {
     createBackfill,
     deleteRecord,
@@ -228,6 +231,10 @@ export default function ViewScreen() {
 
       {subview === 'schedule' ? (
         <>
+          <View style={styles.deadlineColumns}>
+            <DeadlineMarkers dayStart={leftDayStart} todos={todosModel.todos} />
+            <DeadlineMarkers dayStart={rightDayStart} todos={todosModel.todos} />
+          </View>
           <View style={styles.legend}>
             <Text style={styles.legendActual}>■ 实际记录</Text>
             <Text style={styles.legendPlan}>□ 日程</Text>
@@ -405,6 +412,22 @@ function SegmentButton({
   );
 }
 
+function DeadlineMarkers({ dayStart, todos }: { dayStart: number; todos: TodoItem[] }) {
+  const dayEnd = addLocalDays(dayStart, 1);
+  const dueTodos = todos.filter((todo) => todo.dueAt !== null && todo.dueAt >= dayStart && todo.dueAt < dayEnd);
+  return (
+    <View style={styles.deadlineColumn}>
+      {dueTodos.length ? dueTodos.slice(0, 3).map((todo) => (
+        <View key={todo.id} style={styles.deadlineBadge}>
+          <Text numberOfLines={1} style={styles.deadlineText}>旗 {todo.title}</Text>
+          <Text style={styles.deadlineTime}>{todo.dueHasTime && todo.dueAt ? new Date(todo.dueAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '今日截止'}</Text>
+        </View>
+      )) : <Text style={styles.noDeadline}>无截止待办</Text>}
+      {dueTodos.length > 3 ? <Text style={styles.moreDeadline}>＋{dueTodos.length - 3}</Text> : null}
+    </View>
+  );
+}
+
 function readableHistoryError(error: Error) {
   const messages: Record<string, string> = {
     BACKFILL_FUTURE_NOT_ALLOWED: '只能补记已经过去的空白时间。',
@@ -495,6 +518,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  deadlineColumns: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  deadlineColumn: {
+    flex: 1,
+    minHeight: 42,
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  deadlineBadge: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  deadlineText: {
+    flex: 1,
+    color: colors.tomato,
+    fontSize: typography.small,
+  },
+  deadlineTime: {
+    color: colors.textMuted,
+    fontSize: 10,
+  },
+  noDeadline: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    textAlign: 'center',
+  },
+  moreDeadline: {
+    color: colors.accent,
+    fontSize: typography.small,
   },
   legendActual: {
     color: colors.accent,

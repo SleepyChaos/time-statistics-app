@@ -5,7 +5,12 @@ import type {
   CreateTodoInput,
   TodoRepository,
 } from '@/domain/todos/todo-repository';
-import { compareTodos, type TodoItem, type TodoStage } from '@/domain/todos/todo';
+import {
+  compareTodos,
+  recurrenceForTodoStage,
+  type TodoItem,
+  type TodoStage,
+} from '@/domain/todos/todo';
 
 interface TodoRow {
   id: string;
@@ -55,17 +60,19 @@ export class SqliteTodoRepository implements TodoRepository {
     const id = Crypto.randomUUID();
     const now = Date.now();
     const stage = input.stage ?? 'buffer';
+    const recurrenceSnapshot = recurrenceForTodoStage(stage);
     await this.database.runAsync(
       `
         INSERT INTO todo_items (
-          id, source, stage, title, due_at, due_has_time, created_at, updated_at
-        ) VALUES (?, 'local', ?, ?, ?, ?, ?, ?)
+          id, source, stage, title, due_at, due_has_time, recurrence_snapshot, created_at, updated_at
+        ) VALUES (?, 'local', ?, ?, ?, ?, ?, ?, ?)
       `,
       id,
       stage,
       title,
       input.dueAt ?? null,
       input.dueHasTime ? 1 : 0,
+      recurrenceSnapshot,
       now,
       now,
     );
@@ -80,7 +87,7 @@ export class SqliteTodoRepository implements TodoRepository {
       dueAt: input.dueAt ?? null,
       dueHasTime: input.dueHasTime ?? false,
       isCompleted: false,
-      recurrenceSnapshot: null,
+      recurrenceSnapshot,
       priority: 0,
       eventId: null,
       eventName: null,
@@ -151,4 +158,3 @@ function mapTodo(row: TodoRow): TodoItem {
     updatedAt: row.updated_at,
   };
 }
-

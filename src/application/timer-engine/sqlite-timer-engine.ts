@@ -90,6 +90,12 @@ export class SqliteTimerEngine {
       }
 
       const phase: PomodoroPhase | null = input.mode === 'pomodoro' ? 'focus' : null;
+      const configRow = input.mode === 'pomodoro'
+        ? await transaction.getFirstAsync<{ value_json: string }>(
+            `SELECT value_json FROM app_settings WHERE key = 'pomodoroConfig'`,
+          )
+        : null;
+      const pomodoroConfig = parsePomodoroConfig(configRow?.value_json ?? null);
       await transaction.runAsync(
         `INSERT INTO timer_sessions (
           id, mode, started_at, status, pomodoro_config_snapshot, created_at, updated_at
@@ -98,12 +104,7 @@ export class SqliteTimerEngine {
         input.mode,
         now,
         input.mode === 'pomodoro'
-          ? JSON.stringify({
-              focusMinutes: 25,
-              shortBreakMinutes: 5,
-              longBreakMinutes: 15,
-              longBreakEvery: 4,
-            })
+          ? JSON.stringify(pomodoroConfig)
           : null,
         now,
         now,

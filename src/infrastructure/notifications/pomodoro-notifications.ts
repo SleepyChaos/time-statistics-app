@@ -13,6 +13,10 @@ export class PomodoroNotificationScheduler {
     if (!timer || timer.mode !== 'pomodoro' || timer.status !== 'running') return;
     const permission = await Notifications.getPermissionsAsync();
     if (!permission.granted) return;
+    const soundSetting = await this.database.getFirstAsync<{ value_json: string }>(
+      `SELECT value_json FROM app_settings WHERE key = 'pomodoroSound'`,
+    );
+    const soundEnabled = soundSetting ? JSON.parse(soundSetting.value_json) !== false : true;
     const seconds = Math.max(
       1,
       Math.ceil((timer.phaseStartedAt + pomodoroPhaseDurationMs(timer) - Date.now()) / 1_000),
@@ -22,7 +26,7 @@ export class PomodoroNotificationScheduler {
         title: timer.phase === 'focus' ? '本轮专注时间到了' : '休息时间到了',
         body: '打开应用确认后再切换到下一阶段。',
         data: { route: '/timer', sessionId: timer.sessionId },
-        sound: true,
+        sound: soundEnabled ? 'default' : undefined,
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,

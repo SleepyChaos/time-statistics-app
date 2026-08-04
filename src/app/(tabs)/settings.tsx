@@ -6,11 +6,12 @@ import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
 const SETTINGS = [
   { label: '事件与分类', route: '/event-management' as const },
-  { label: '计时与番茄钟' },
-  { label: 'Apple 接入' },
-  { label: '通知与外观' },
+  { label: '计时与番茄钟', route: '/preferences' as const },
+  { label: 'Apple 接入', route: '/integrations' as const },
+  { label: '通知与外观', route: '/preferences' as const },
   { label: '数据与回收区', route: '/recycle-bin' as const },
-  { label: '关于' },
+  { label: '数据概况与关于', route: '/data-settings' as const },
+  { label: '重新查看首次引导', route: '/onboarding' as const },
 ];
 
 export default function SettingsScreen() {

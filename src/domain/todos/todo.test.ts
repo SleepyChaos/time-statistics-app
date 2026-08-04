@@ -1,4 +1,4 @@
-import { compareTodos, type TodoItem } from '@/domain/todos/todo';
+import { compareTodos, recurrenceForTodoStage, type TodoItem } from '@/domain/todos/todo';
 
 function todo(overrides: Partial<TodoItem>): TodoItem {
   return {
@@ -35,5 +35,15 @@ describe('compareTodos', () => {
       todo({ id: 'first', dueAt: 10, createdAt: 1 }),
     ];
     expect(items.sort(compareTodos).map((item) => item.id)).toEqual(['first', 'second', 'later']);
+  });
+});
+
+describe('todo recurrence', () => {
+  it('forces daily recurrence for habit items only', () => {
+    expect(JSON.parse(recurrenceForTodoStage('habit') ?? '{}')).toEqual({
+      frequency: 'daily',
+      interval: 1,
+    });
+    expect(recurrenceForTodoStage('buffer')).toBeNull();
   });
 });

@@ -1,12 +1,13 @@
-import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { findTodoDropStage, type TodoDropTarget } from '@/domain/todos/drop-target';
 import { todoStageLabels, todoStages, type TodoStage } from '@/domain/todos/todo';
 import { useActiveEvents } from '@/features/events/use-active-events';
 import { DraggableTodoSurface } from '@/features/todos/draggable-todo-surface';
 import { useTodos } from '@/features/todos/use-todos';
+import { useTodoViewState } from '@/features/todos/use-todo-view-state';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
@@ -22,10 +23,17 @@ const FILTERS: readonly { key: StageFilter; label: string }[] = [
 
 export default function TodosScreen() {
   const router = useRouter();
-  const [filter, setFilter] = useState<StageFilter>('all');
+  const [selectedFilter, setSelectedFilter] = useState<StageFilter | null>(null);
   const [draft, setDraft] = useState('');
+  const [dueOffsetDays, setDueOffsetDays] = useState<number | null>(null);
   const [linkingTodoId, setLinkingTodoId] = useState<string | null>(null);
   const [draggingTodoId, setDraggingTodoId] = useState<string | null>(null);
+  const viewState = useTodoViewState();
+  const saveViewState = viewState.save;
+  const filter = selectedFilter ?? viewState.state?.filter ?? 'all';
+  const screenScrollRef = useRef<ScrollView>(null);
+  const filterRef = useRef<StageFilter>('all');
+  const scrollYRef = useRef(0);
   const categoryRefs = useRef<Partial<Record<TodoStage, View | null>>>({});
   const dropTargets = useRef<TodoDropTarget[]>([]);
   const todos = useTodos(filter === 'all' ? undefined : filter);
@@ -42,14 +50,32 @@ export default function TodosScreen() {
     [todos.todos],
   );
 
+  useEffect(() => {
+    if (!viewState.state) return;
+    filterRef.current = viewState.state.filter;
+    scrollYRef.current = viewState.state.scrollY;
+    requestAnimationFrame(() => screenScrollRef.current?.scrollTo({ y: viewState.state?.scrollY ?? 0, animated: false }));
+  }, [viewState.state]);
+  useFocusEffect(
+    useCallback(
+      () => () => saveViewState({ filter: filterRef.current, scrollY: scrollYRef.current }),
+      [saveViewState],
+    ),
+  );
+
   const create = () => {
     if (!draft.trim()) return;
     todos.create(
       {
         title: draft,
         stage: filter === 'all' ? 'buffer' : filter,
+        dueAt: dueOffsetDays === null ? null : dueDateFromNow(dueOffsetDays),
+        dueHasTime: false,
       },
-      { onSuccess: () => setDraft('') },
+      { onSuccess: () => {
+        setDraft('');
+        setDueOffsetDays(null);
+      } },
     );
   };
   const measureDropTargets = useCallback(() => {
@@ -73,7 +99,14 @@ export default function TodosScreen() {
   );
 
   return (
-    <Screen eyebrow="REMINDERS" title="待办事项" contentStyle={styles.content}>
+    <Screen
+      eyebrow="REMINDERS"
+      title="待办事项"
+      contentStyle={styles.content}
+      scrollRef={screenScrollRef}
+      onScroll={(event) => {
+        scrollYRef.current = event.nativeEvent.contentOffset.y;
+      }}>
       <View style={styles.categoryRail}>
         {FILTERS.map((item) => (
           <Pressable
@@ -83,7 +116,10 @@ export default function TodosScreen() {
             }}
             accessibilityRole="button"
             accessibilityState={{ selected: filter === item.key }}
-            onPress={() => setFilter(item.key)}
+            onPress={() => {
+              setSelectedFilter(item.key);
+              filterRef.current = item.key;
+            }}
             style={[
               styles.category,
               filter === item.key && styles.categoryActive,
@@ -154,6 +190,14 @@ export default function TodosScreen() {
                           ? `关联 · ${todo.eventName}`
                           : '未关联计时事件'}
                     </Text>
+                    {todo.dueAt ? (
+                      <Text style={styles.dueText}>
+                        截止 {new Date(todo.dueAt).toLocaleDateString('zh-CN')}
+                        {todo.stage === 'habit' ? ' · 每日重复' : ''}
+                      </Text>
+                    ) : todo.stage === 'habit' ? (
+                      <Text style={styles.dueText}>每日重复</Text>
+                    ) : null}
                   </Pressable>
                 </View>
                 {linkingTodoId === todo.id ? (
@@ -205,6 +249,24 @@ export default function TodosScreen() {
             <Text style={styles.addText}>＋</Text>
           </Pressable>
         </View>
+        <View style={styles.duePicker}>
+          {[
+            { label: '无截止', value: null },
+            { label: '今天', value: 0 },
+            { label: '明天', value: 1 },
+            { label: '7 天后', value: 7 },
+          ].map((option) => (
+            <Pressable
+              key={option.label}
+              accessibilityRole="button"
+              accessibilityState={{ selected: dueOffsetDays === option.value }}
+              onPress={() => setDueOffsetDays(option.value)}
+              style={[styles.dueOption, dueOffsetDays === option.value && styles.dueOptionSelected]}>
+              <Text style={styles.dueOptionText}>{option.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {filter === 'habit' ? <Text style={styles.habitHint}>日常习惯会自动设为每日重复。</Text> : null}
       </View>
     </Screen>
   );
@@ -212,6 +274,13 @@ export default function TodosScreen() {
 
 function filterLabel(filter: Exclude<StageFilter, 'all'>) {
   return todoStageLabels[filter];
+}
+
+function dueDateFromNow(offsetDays: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  date.setHours(23, 59, 0, 0);
+  return date.getTime();
 }
 
 const styles = StyleSheet.create({
@@ -286,6 +355,10 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: typography.small,
   },
+  dueText: {
+    color: colors.tomato,
+    fontSize: typography.small,
+  },
   eventPicker: {
     gap: spacing.xs,
     paddingTop: spacing.sm,
@@ -349,5 +422,29 @@ const styles = StyleSheet.create({
   addText: {
     color: colors.accent,
     fontSize: typography.heading,
+  },
+  duePicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  dueOption: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  dueOptionSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentMuted,
+  },
+  dueOptionText: {
+    color: colors.textSecondary,
+    fontSize: typography.small,
+  },
+  habitHint: {
+    color: colors.textMuted,
+    fontSize: typography.small,
   },
 });

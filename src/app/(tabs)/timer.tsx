@@ -1,4 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -9,6 +11,7 @@ import { EventArcSelector } from '@/features/timer/event-arc-selector';
 import { RollingTimeArc } from '@/features/timer/rolling-time-arc';
 import { useActiveEvents } from '@/features/events/use-active-events';
 import { useTodos } from '@/features/todos/use-todos';
+import { useAppSettings } from '@/features/settings/use-app-settings';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 import { pomodoroRemainingMs } from '@/domain/timer/active-timer';
@@ -22,6 +25,7 @@ export default function TimerScreen() {
   const router = useRouter();
   const eventsQuery = useActiveEvents();
   const todosModel = useTodos();
+  const settings = useAppSettings();
   const timer = useTimerController();
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -30,6 +34,7 @@ export default function TimerScreen() {
   const [completeTodo, setCompleteTodo] = useState(false);
   const [backdatedStartAt, setBackdatedStartAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [openedAt] = useState(() => Date.now());
   const requestedEventId = singleParam(params.eventId);
 
   const selectedEvent = useMemo(
@@ -49,6 +54,18 @@ export default function TimerScreen() {
     const interval = setInterval(() => setNow(Date.now()), timer.activeTimer?.mode === 'pomodoro' ? 1_000 : 60_000);
     return () => clearInterval(interval);
   }, [timer.activeTimer?.mode]);
+
+  useEffect(() => {
+    const tag = 'active-timer';
+    if (settings.preferences?.keepAwake && timer.activeTimer && !timer.activeTimer.pendingEndAt) {
+      void activateKeepAwakeAsync(tag);
+    } else {
+      void deactivateKeepAwake(tag);
+    }
+    return () => {
+      void deactivateKeepAwake(tag);
+    };
+  }, [settings.preferences?.keepAwake, timer.activeTimer]);
 
   return (
     <Screen eyebrow="NOW" title="时间刻度">
@@ -72,6 +89,11 @@ export default function TimerScreen() {
         <Text style={styles.messageText}>
           {timer.activeTimer ? displayedEventName : '记录是为了看见，而不是为了控制。'}
         </Text>
+        {timer.activeTimer && timer.activeTimer.lastPersistedAt < openedAt - 5_000 ? (
+          <Text style={styles.recoveryHint}>
+            已恢复上次计时状态；运行时段继续按时间戳计算，你可以继续使用或现在结束。
+          </Text>
+        ) : null}
         {timer.error ? <Text style={styles.error}>{readableError(timer.error)}</Text> : null}
       </View>
 
@@ -147,7 +169,12 @@ export default function TimerScreen() {
               <Pressable
                 accessibilityRole="button"
                 disabled={timer.isMutating}
-                onPress={() => timer.advancePomodoro()}
+                onPress={() => {
+                  if (settings.preferences?.pomodoroHaptics) {
+                    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
+                  timer.advancePomodoro();
+                }}
                 style={[styles.button, styles.pomodoroButton]}>
                 <Text style={styles.buttonText}>确认下一阶段</Text>
               </Pressable>
@@ -263,6 +290,13 @@ const styles = StyleSheet.create({
   error: {
     color: colors.tomato,
     fontSize: typography.caption,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  recoveryHint: {
+    color: colors.accent,
+    fontSize: typography.small,
+    lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: 'center',
   },
