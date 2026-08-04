@@ -6,6 +6,7 @@ import {
   type StartTimerInput,
   SqliteTimerEngine,
 } from '@/application/timer-engine/sqlite-timer-engine';
+import { PomodoroNotificationScheduler } from '@/infrastructure/notifications/pomodoro-notifications';
 
 export const activeTimerQueryKey = ['timer', 'active'] as const;
 
@@ -13,6 +14,10 @@ export function useTimerController() {
   const database = useSQLiteContext();
   const queryClient = useQueryClient();
   const engine = useMemo(() => new SqliteTimerEngine(database), [database]);
+  const notificationScheduler = useMemo(
+    () => new PomodoroNotificationScheduler(database),
+    [database],
+  );
   const activeQuery = useQuery({
     queryKey: activeTimerQueryKey,
     queryFn: () => engine.getActive(),
@@ -31,15 +36,21 @@ export function useTimerController() {
 
   const startMutation = useMutation({
     mutationFn: (input: StartTimerInput) => engine.start(input),
-    onSuccess: refreshActive,
+    onSuccess: async (active) => {
+      await Promise.all([refreshActive(), notificationScheduler.schedule(active)]);
+    },
   });
   const pauseMutation = useMutation({
     mutationFn: () => engine.pause(),
-    onSuccess: refreshActive,
+    onSuccess: async () => {
+      await Promise.all([refreshActive(), notificationScheduler.cancel()]);
+    },
   });
   const resumeMutation = useMutation({
     mutationFn: () => engine.resume(),
-    onSuccess: refreshActive,
+    onSuccess: async (active) => {
+      await Promise.all([refreshActive(), notificationScheduler.schedule(active)]);
+    },
   });
   const switchEventMutation = useMutation({
     mutationFn: (eventId: string) => engine.switchEvent(eventId),
@@ -50,9 +61,17 @@ export function useTimerController() {
       ]);
     },
   });
+  const advancePomodoroMutation = useMutation({
+    mutationFn: () => engine.advancePomodoroPhase(),
+    onSuccess: async (active) => {
+      await Promise.all([refreshActive(), notificationScheduler.schedule(active)]);
+    },
+  });
   const requestEndMutation = useMutation({
     mutationFn: () => engine.requestEnd(),
-    onSuccess: refreshActive,
+    onSuccess: async () => {
+      await Promise.all([refreshActive(), notificationScheduler.cancel()]);
+    },
   });
   const saveMutation = useMutation({
     mutationFn: ({
@@ -62,11 +81,15 @@ export function useTimerController() {
       reflection: string;
       completeTodo: boolean;
     }) => engine.endAndSave(reflection, completeTodo),
-    onSuccess: refreshAfterFinalize,
+    onSuccess: async () => {
+      await Promise.all([refreshAfterFinalize(), notificationScheduler.cancel()]);
+    },
   });
   const discardMutation = useMutation({
     mutationFn: () => engine.endAndDiscard(),
-    onSuccess: refreshAfterFinalize,
+    onSuccess: async () => {
+      await Promise.all([refreshAfterFinalize(), notificationScheduler.cancel()]);
+    },
   });
 
   const error =
@@ -74,6 +97,7 @@ export function useTimerController() {
     pauseMutation.error ??
     resumeMutation.error ??
     switchEventMutation.error ??
+    advancePomodoroMutation.error ??
     requestEndMutation.error ??
     saveMutation.error ??
     discardMutation.error;
@@ -86,6 +110,7 @@ export function useTimerController() {
       pauseMutation.isPending ||
       resumeMutation.isPending ||
       switchEventMutation.isPending ||
+      advancePomodoroMutation.isPending ||
       requestEndMutation.isPending ||
       saveMutation.isPending ||
       discardMutation.isPending,
@@ -94,6 +119,7 @@ export function useTimerController() {
     pause: pauseMutation.mutate,
     resume: resumeMutation.mutate,
     switchEvent: switchEventMutation.mutate,
+    advancePomodoro: advancePomodoroMutation.mutate,
     requestEnd: requestEndMutation.mutate,
     save: saveMutation.mutate,
     discard: discardMutation.mutate,

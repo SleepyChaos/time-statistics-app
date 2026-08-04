@@ -7,6 +7,7 @@ import type {
   TimeSliceKind,
   TimerMode,
   TimerStatus,
+  PomodoroConfig,
 } from '@/domain/timer/active-timer';
 
 interface ActiveTimerRow {
@@ -27,6 +28,7 @@ interface ActiveTimerRow {
   current_record_id: string;
   current_slice_id: string;
   pending_end_at: number | null;
+  pomodoro_config_snapshot: string | null;
 }
 
 interface EventSnapshotRow {
@@ -52,13 +54,16 @@ export class SqliteTimerEngine {
 
   async getActive(): Promise<ActiveTimer | null> {
     const row = await this.database.getFirstAsync<ActiveTimerRow>(
-      'SELECT * FROM active_timer WHERE singleton_id = 1',
+      `SELECT active_timer.*, timer_sessions.pomodoro_config_snapshot
+       FROM active_timer JOIN timer_sessions ON timer_sessions.id = active_timer.session_id
+       WHERE active_timer.singleton_id = 1`,
     );
     return row ? mapActiveTimer(row) : null;
   }
 
   async start(input: StartTimerInput) {
-    const now = input.startsAt ?? Date.now();
+    const wallNow = Date.now();
+    const now = input.startsAt ?? wallNow;
     const sessionId = Crypto.randomUUID();
     const recordId = Crypto.randomUUID();
     const sliceId = Crypto.randomUUID();
@@ -76,8 +81,8 @@ export class SqliteTimerEngine {
            AND started_at < ?
            AND COALESCE(ended_at, ?) > ?
          LIMIT 1`,
-        now + 1,
-        now + 1,
+        wallNow + 1,
+        wallNow + 1,
         now,
       );
       if (overlap) {
@@ -249,6 +254,55 @@ export class SqliteTimerEngine {
         currentSlice.kind === 'effective' ? 0 : delta,
         at,
         nextRecordId,
+        nextSliceId,
+      );
+    });
+    return this.getActive();
+  }
+
+  async advancePomodoroPhase(at = Date.now()) {
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const active = requireActive(await loadActiveRow(transaction));
+      requireNotFinishing(active);
+      if (active.mode !== 'pomodoro' || !active.pomodoro_phase) {
+        throw new Error('TIMER_NOT_POMODORO');
+      }
+      const session = await transaction.getFirstAsync<{ pomodoro_config_snapshot: string }>(
+        'SELECT pomodoro_config_snapshot FROM timer_sessions WHERE id = ?',
+        active.session_id,
+      );
+      const config = parsePomodoroConfig(session?.pomodoro_config_snapshot ?? null);
+      const nextPhase: PomodoroPhase =
+        active.pomodoro_phase === 'focus'
+          ? active.pomodoro_round % config.longBreakEvery === 0
+            ? 'long-break'
+            : 'short-break'
+          : 'focus';
+      const nextRound = active.pomodoro_phase === 'focus' ? active.pomodoro_round : active.pomodoro_round + 1;
+      const currentSlice = await loadSlice(transaction, active.current_slice_id);
+      const delta = safeDelta(active.phase_started_at, at);
+      const nextSliceId = Crypto.randomUUID();
+      await closeSlice(transaction, active.current_slice_id, at);
+      await insertSlice(
+        transaction,
+        nextSliceId,
+        active.current_record_id,
+        nextPhase === 'focus' ? 'effective' : 'pomodoro-break',
+        at,
+      );
+      await transaction.runAsync(
+        `UPDATE active_timer SET
+          state = 'running', pomodoro_phase = ?, pomodoro_round = ?, phase_started_at = ?,
+          accumulated_effective_ms = accumulated_effective_ms + ?,
+          accumulated_paused_ms = accumulated_paused_ms + ?,
+          last_persisted_at = ?, current_slice_id = ?
+         WHERE singleton_id = 1`,
+        nextPhase,
+        nextRound,
+        at,
+        currentSlice.kind === 'effective' ? delta : 0,
+        currentSlice.kind === 'effective' ? 0 : delta,
+        at,
         nextSliceId,
       );
     });
@@ -472,5 +526,22 @@ function mapActiveTimer(row: ActiveTimerRow): ActiveTimer {
     accumulatedPausedMs: row.accumulated_paused_ms,
     lastPersistedAt: row.last_persisted_at,
     pendingEndAt: row.pending_end_at,
+    pomodoroConfig: parsePomodoroConfig(row.pomodoro_config_snapshot),
   };
+}
+
+const DEFAULT_POMODORO_CONFIG: PomodoroConfig = {
+  focusMinutes: 25,
+  shortBreakMinutes: 5,
+  longBreakMinutes: 15,
+  longBreakEvery: 4,
+};
+
+function parsePomodoroConfig(value: string | null): PomodoroConfig {
+  if (!value) return DEFAULT_POMODORO_CONFIG;
+  try {
+    return { ...DEFAULT_POMODORO_CONFIG, ...JSON.parse(value) } as PomodoroConfig;
+  } catch {
+    return DEFAULT_POMODORO_CONFIG;
+  }
 }

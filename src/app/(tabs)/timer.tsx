@@ -1,15 +1,17 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CurrentClock } from '@/features/timer/current-clock';
 import { ElapsedTime } from '@/features/timer/elapsed-time';
 import { useTimerController } from '@/features/timer/use-timer-controller';
 import { EventArcSelector } from '@/features/timer/event-arc-selector';
+import { RollingTimeArc } from '@/features/timer/rolling-time-arc';
 import { useActiveEvents } from '@/features/events/use-active-events';
 import { useTodos } from '@/features/todos/use-todos';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
+import { pomodoroRemainingMs } from '@/domain/timer/active-timer';
 
 export default function TimerScreen() {
   const params = useLocalSearchParams<{
@@ -26,6 +28,8 @@ export default function TimerScreen() {
   const [selectedTodo, setSelectedTodo] = useState<{ id: string; title: string } | null>(null);
   const [reflection, setReflection] = useState('');
   const [completeTodo, setCompleteTodo] = useState(false);
+  const [backdatedStartAt, setBackdatedStartAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const requestedEventId = singleParam(params.eventId);
 
   const selectedEvent = useMemo(
@@ -37,12 +41,22 @@ export default function TimerScreen() {
     [events, requestedEventId, selectedEventId],
   );
   const displayedEventName = timer.activeTimer?.eventName ?? selectedEvent?.name ?? '加载事件';
+  const pomodoroRemaining = timer.activeTimer
+    ? pomodoroRemainingMs(timer.activeTimer, now)
+    : null;
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), timer.activeTimer?.mode === 'pomodoro' ? 1_000 : 60_000);
+    return () => clearInterval(interval);
+  }, [timer.activeTimer?.mode]);
 
   return (
     <Screen eyebrow="NOW" title="时间刻度">
       <View style={styles.timeline}>
-        <Text style={styles.timelineHint}>过去 6 小时</Text>
-        <View style={styles.arc}>
+        <RollingTimeArc
+          disabled={Boolean(timer.activeTimer)}
+          now={now}
+          onBackdateChange={setBackdatedStartAt}>
           {timer.activeTimer ? <ElapsedTime timer={timer.activeTimer} /> : <CurrentClock />}
           {timer.activeTimer && !timer.activeTimer.pendingEndAt ? (
             <Text style={styles.status}>
@@ -51,8 +65,7 @@ export default function TimerScreen() {
           ) : timer.activeTimer?.pendingEndAt ? (
             <Text style={styles.status}>等待保存</Text>
           ) : null}
-        </View>
-        <Text style={styles.timelineHint}>未来 6 小时</Text>
+        </RollingTimeArc>
       </View>
 
       <View style={styles.message}>
@@ -67,6 +80,12 @@ export default function TimerScreen() {
           {selectedEvent ? `${selectedEvent.categoryName} → ${displayedEventName}` : displayedEventName}
         </Text>
         {selectedTodo ? <Text style={styles.todoSelection}>待办：{selectedTodo.title}</Text> : null}
+        {timer.activeTimer?.mode === 'pomodoro' ? (
+          <Text style={styles.todoSelection}>
+            {timer.activeTimer.phase === 'focus' ? '专注' : timer.activeTimer.phase === 'long-break' ? '长休息' : '短休息'}
+            {' · 第 '}{timer.activeTimer.round} 轮
+          </Text>
+        ) : null}
         <EventArcSelector
           events={events}
           initialEventId={requestedEventId}
@@ -124,6 +143,15 @@ export default function TimerScreen() {
           </View>
         ) : timer.activeTimer ? (
           <View style={styles.actions}>
+            {timer.activeTimer.mode === 'pomodoro' && pomodoroRemaining !== null && pomodoroRemaining <= 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={timer.isMutating}
+                onPress={() => timer.advancePomodoro()}
+                style={[styles.button, styles.pomodoroButton]}>
+                <Text style={styles.buttonText}>确认下一阶段</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               disabled={timer.isMutating}
@@ -151,6 +179,7 @@ export default function TimerScreen() {
                 timer.start({
                   mode: 'normal',
                   eventId: selectedEvent.id,
+                  startsAt: backdatedStartAt ?? undefined,
                   todoId: selectedTodo?.id ?? singleParam(params.todoId),
                   todoTitle: selectedTodo?.title ?? singleParam(params.todoTitle),
                 })
@@ -166,6 +195,7 @@ export default function TimerScreen() {
                 timer.start({
                   mode: 'pomodoro',
                   eventId: selectedEvent.id,
+                  startsAt: backdatedStartAt ?? undefined,
                   todoId: selectedTodo?.id ?? singleParam(params.todoId),
                   todoTitle: selectedTodo?.title ?? singleParam(params.todoTitle),
                 })
