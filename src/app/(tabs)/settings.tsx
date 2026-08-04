@@ -5,7 +5,7 @@ import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
 const SETTINGS = [
-  { label: '事件与分类' },
+  { label: '事件与分类', route: '/event-management' as const },
   { label: '计时与番茄钟' },
   { label: 'Apple 接入' },
   { label: '通知与外观' },

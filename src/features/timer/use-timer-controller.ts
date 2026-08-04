@@ -41,6 +41,15 @@ export function useTimerController() {
     mutationFn: () => engine.resume(),
     onSuccess: refreshActive,
   });
+  const switchEventMutation = useMutation({
+    mutationFn: (eventId: string) => engine.switchEvent(eventId),
+    onSuccess: async () => {
+      await Promise.all([
+        refreshActive(),
+        queryClient.invalidateQueries({ queryKey: ['timeline'] }),
+      ]);
+    },
+  });
   const requestEndMutation = useMutation({
     mutationFn: () => engine.requestEnd(),
     onSuccess: refreshActive,
@@ -64,6 +73,7 @@ export function useTimerController() {
     startMutation.error ??
     pauseMutation.error ??
     resumeMutation.error ??
+    switchEventMutation.error ??
     requestEndMutation.error ??
     saveMutation.error ??
     discardMutation.error;
@@ -75,6 +85,7 @@ export function useTimerController() {
       startMutation.isPending ||
       pauseMutation.isPending ||
       resumeMutation.isPending ||
+      switchEventMutation.isPending ||
       requestEndMutation.isPending ||
       saveMutation.isPending ||
       discardMutation.isPending,
@@ -82,6 +93,7 @@ export function useTimerController() {
     start: startMutation.mutate,
     pause: pauseMutation.mutate,
     resume: resumeMutation.mutate,
+    switchEvent: switchEventMutation.mutate,
     requestEnd: requestEndMutation.mutate,
     save: saveMutation.mutate,
     discard: discardMutation.mutate,

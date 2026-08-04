@@ -15,6 +15,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="recycle-bin" />
+          <Stack.Screen name="event-management" />
         </Stack>
       </AppProviders>
     </GestureHandlerRootView>

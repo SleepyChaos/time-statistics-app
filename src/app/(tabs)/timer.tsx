@@ -1,11 +1,13 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CurrentClock } from '@/features/timer/current-clock';
 import { ElapsedTime } from '@/features/timer/elapsed-time';
 import { useTimerController } from '@/features/timer/use-timer-controller';
+import { EventArcSelector } from '@/features/timer/event-arc-selector';
 import { useActiveEvents } from '@/features/events/use-active-events';
+import { useTodos } from '@/features/todos/use-todos';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
@@ -15,10 +17,13 @@ export default function TimerScreen() {
     todoId?: string;
     todoTitle?: string;
   }>();
+  const router = useRouter();
   const eventsQuery = useActiveEvents();
+  const todosModel = useTodos();
   const timer = useTimerController();
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [selectedTodo, setSelectedTodo] = useState<{ id: string; title: string } | null>(null);
   const [reflection, setReflection] = useState('');
   const [completeTodo, setCompleteTodo] = useState(false);
   const requestedEventId = singleParam(params.eventId);
@@ -58,26 +63,24 @@ export default function TimerScreen() {
       </View>
 
       <View style={styles.selector}>
-        <Text style={styles.selectorLabel}>{displayedEventName}</Text>
-        <View style={styles.eventRow}>
-          {events.slice(0, 5).map((event) => {
-            const selected = event.id === selectedEvent?.id;
-            return (
-              <Pressable
-                key={event.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                disabled={timer.activeTimer !== null}
-                onPress={() => setSelectedEventId(event.id)}
-                style={[styles.eventChip, selected && styles.eventChipSelected]}>
-                <View style={[styles.eventDot, { backgroundColor: event.colorArgb }]} />
-                <Text style={[styles.eventChipText, selected && styles.eventChipTextSelected]}>
-                  {event.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <Text style={styles.selectorLabel}>
+          {selectedEvent ? `${selectedEvent.categoryName} → ${displayedEventName}` : displayedEventName}
+        </Text>
+        {selectedTodo ? <Text style={styles.todoSelection}>待办：{selectedTodo.title}</Text> : null}
+        <EventArcSelector
+          events={events}
+          initialEventId={requestedEventId}
+          isLocked={Boolean(timer.activeTimer && !timer.activeTimer.pendingEndAt)}
+          onAdd={() => router.push('/event-management')}
+          onSelect={({ event, todo }) => {
+            setSelectedEventId(event.id);
+            setSelectedTodo(todo ? { id: todo.id, title: todo.title } : null);
+            if (timer.activeTimer && !timer.activeTimer.pendingEndAt) {
+              timer.switchEvent(event.id);
+            }
+          }}
+          todos={todosModel.todos}
+        />
         {timer.activeTimer?.pendingEndAt ? (
           <View style={styles.finishCard}>
             <Text style={styles.finishTitle}>这段时间已经结束</Text>
@@ -148,8 +151,8 @@ export default function TimerScreen() {
                 timer.start({
                   mode: 'normal',
                   eventId: selectedEvent.id,
-                  todoId: singleParam(params.todoId),
-                  todoTitle: singleParam(params.todoTitle),
+                  todoId: selectedTodo?.id ?? singleParam(params.todoId),
+                  todoTitle: selectedTodo?.title ?? singleParam(params.todoTitle),
                 })
               }
               style={[styles.button, styles.normalButton]}>
@@ -163,8 +166,8 @@ export default function TimerScreen() {
                 timer.start({
                   mode: 'pomodoro',
                   eventId: selectedEvent.id,
-                  todoId: singleParam(params.todoId),
-                  todoTitle: singleParam(params.todoTitle),
+                  todoId: selectedTodo?.id ?? singleParam(params.todoId),
+                  todoTitle: selectedTodo?.title ?? singleParam(params.todoTitle),
                 })
               }
               style={[styles.button, styles.pomodoroButton]}>
@@ -245,6 +248,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: typography.body,
     fontWeight: '600',
+    textAlign: 'center',
+  },
+  todoSelection: {
+    color: colors.accent,
+    fontSize: typography.small,
     textAlign: 'center',
   },
   eventRow: {
