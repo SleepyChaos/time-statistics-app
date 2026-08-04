@@ -7,12 +7,14 @@ export interface EventTimeStatistic {
   categoryId: string;
   categoryName: string;
   effectiveMs: number;
+  trendMs: number[];
 }
 
 export interface CategoryTimeStatistic {
   categoryId: string;
   categoryName: string;
   effectiveMs: number;
+  trendMs: number[];
 }
 
 export interface TodoTimeStatistic {
@@ -49,7 +51,32 @@ export function aggregateCategories(events: readonly EventTimeStatistic[]) {
       categoryId: event.categoryId,
       categoryName: event.categoryName,
       effectiveMs: (current?.effectiveMs ?? 0) + event.effectiveMs,
+      trendMs: event.trendMs.map((value, index) => value + (current?.trendMs[index] ?? 0)),
     });
   }
   return [...totals.values()].sort((left, right) => right.effectiveMs - left.effectiveMs);
+}
+
+export function attachEventTrends(
+  events: readonly EventTimeStatistic[],
+  slices: readonly { eventId: string; startsAt: number; endsAt: number }[],
+  startsAt: number,
+  endsAt: number,
+  bucketCount = 7,
+) {
+  const bucketDuration = (endsAt - startsAt) / bucketCount;
+  const trends = new Map(events.map((event) => [event.eventId, Array<number>(bucketCount).fill(0)]));
+  for (const slice of slices) {
+    const points = trends.get(slice.eventId);
+    if (!points) continue;
+    for (let index = 0; index < bucketCount; index += 1) {
+      const bucketStartsAt = startsAt + bucketDuration * index;
+      const bucketEndsAt = bucketStartsAt + bucketDuration;
+      points[index] += Math.max(
+        0,
+        Math.min(slice.endsAt, bucketEndsAt) - Math.max(slice.startsAt, bucketStartsAt),
+      );
+    }
+  }
+  return events.map((event) => ({ ...event, trendMs: trends.get(event.eventId) ?? [] }));
 }

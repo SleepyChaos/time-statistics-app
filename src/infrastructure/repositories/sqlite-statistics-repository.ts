@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
   aggregateCategories,
+  attachEventTrends,
   type EventTimeStatistic,
   type StatisticsSnapshot,
   type TodoTimeStatistic,
@@ -26,6 +27,12 @@ interface TodoStatisticRow {
   last_started_at: number;
 }
 
+interface EventSliceRow {
+  event_id: string;
+  starts_at: number;
+  ends_at: number;
+}
+
 export class SqliteStatisticsRepository {
   private readonly timeline: SqliteTimelineRepository;
 
@@ -37,7 +44,7 @@ export class SqliteStatisticsRepository {
     const duration = endsAt - startsAt;
     const previousStartsAt = startsAt - duration;
     const effectiveNow = Math.min(now, endsAt);
-    const [timeline, previousTimeline, events, todos] = await Promise.all([
+    const [timeline, previousTimeline, eventTotals, eventSlices, todos] = await Promise.all([
       this.timeline.getSnapshot({
         displayWindow: { startsAt, endsAt },
         utilizationWindow: { startsAt, endsAt },
@@ -49,8 +56,10 @@ export class SqliteStatisticsRepository {
         now: startsAt,
       }),
       this.listEventStatistics(startsAt, endsAt),
+      this.listEffectiveEventSlices(startsAt, endsAt),
       this.listTodoStatistics(startsAt, endsAt),
     ]);
+    const events = attachEventTrends(eventTotals, eventSlices, startsAt, endsAt);
     return {
       startsAt,
       endsAt,
@@ -93,7 +102,31 @@ export class SqliteStatisticsRepository {
       categoryId: row.category_id,
       categoryName: row.category_name,
       effectiveMs: row.effective_ms,
+      trendMs: [],
     })) satisfies EventTimeStatistic[];
+  }
+
+  private async listEffectiveEventSlices(startsAt: number, endsAt: number) {
+    const rows = await this.database.getAllAsync<EventSliceRow>(
+      `SELECT records.event_id,
+              MAX(slices.started_at, ?) AS starts_at,
+              MIN(COALESCE(slices.ended_at, ?), ?) AS ends_at
+       FROM time_slices slices
+       JOIN time_records records ON records.id = slices.record_id
+       WHERE slices.kind = 'effective' AND records.deleted_at IS NULL
+         AND slices.started_at < ? AND COALESCE(slices.ended_at, ?) > ?`,
+      startsAt,
+      endsAt,
+      endsAt,
+      endsAt,
+      endsAt,
+      startsAt,
+    );
+    return rows.map((row) => ({
+      eventId: row.event_id,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+    }));
   }
 
   private async listTodoStatistics(startsAt: number, endsAt: number) {

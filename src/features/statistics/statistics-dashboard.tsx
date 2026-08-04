@@ -68,13 +68,13 @@ export function StatisticsDashboard({ now }: { now: number }) {
 
       <StatSection title="分类投入">
         {data?.categories.slice(0, 8).map((category) => (
-          <BarRow key={category.categoryId} label={category.categoryName} value={category.effectiveMs} max={data.categories[0]?.effectiveMs ?? 1} />
+          <BarRow key={category.categoryId} label={category.categoryName} value={category.effectiveMs} max={data.categories[0]?.effectiveMs ?? 1} trend={category.trendMs} />
         ))}
       </StatSection>
 
       <StatSection title="具体事件">
         {data?.events.slice(0, 10).map((event) => (
-          <BarRow key={event.eventId} color={event.eventColorArgb} label={`${event.categoryName} → ${event.eventName}`} value={event.effectiveMs} max={data.events[0]?.effectiveMs ?? 1} />
+          <BarRow key={event.eventId} color={event.eventColorArgb} label={`${event.categoryName} → ${event.eventName}`} value={event.effectiveMs} max={data.events[0]?.effectiveMs ?? 1} trend={event.trendMs} />
         ))}
       </StatSection>
 
@@ -100,11 +100,17 @@ function StatSection({ children, title }: { children: ReactNode; title: string }
   return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{children}</View>;
 }
 
-function BarRow({ color = colors.accent, label, max, value }: { color?: string; label: string; max: number; value: number }) {
+function BarRow({ color = colors.accent, label, max, trend, value }: { color?: string; label: string; max: number; trend: number[]; value: number }) {
+  const trendMax = Math.max(1, ...trend);
   return (
     <View style={styles.barRow}>
       <View style={styles.barHeading}><Text numberOfLines={1} style={styles.barLabel}>{label}</Text><Text style={styles.barValue}>{formatDuration(value)}</Text></View>
       <View style={styles.track}><View style={[styles.fill, { backgroundColor: color, width: `${Math.max(2, (value / max) * 100)}%` }]} /></View>
+      <View accessibilityLabel={`${label}在本周期内的七段趋势`} style={styles.trend}>
+        {trend.map((point, index) => (
+          <View key={index} style={[styles.trendPoint, { backgroundColor: color, height: `${Math.max(8, (point / trendMax) * 100)}%` }]} />
+        ))}
+      </View>
     </View>
   );
 }
@@ -149,6 +155,8 @@ const styles = StyleSheet.create({
   barValue: { color: colors.text, fontVariant: ['tabular-nums'] },
   track: { height: 6, overflow: 'hidden', borderRadius: radii.full, backgroundColor: colors.surfaceRaised },
   fill: { height: '100%', borderRadius: radii.full },
+  trend: { height: 24, flexDirection: 'row', alignItems: 'flex-end', gap: 3 },
+  trendPoint: { flex: 1, minHeight: 2, borderTopLeftRadius: 2, borderTopRightRadius: 2, opacity: 0.72 },
   todoRow: { gap: spacing.xs, paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   todoTitle: { color: colors.text, fontWeight: '700' },
   todoDuration: { color: colors.accent, fontSize: typography.heading, fontVariant: ['tabular-nums'] },
