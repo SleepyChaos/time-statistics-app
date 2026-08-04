@@ -36,6 +36,7 @@ import {
 } from '@/features/schedules/use-schedules';
 import { DayColumn, DAY_HEIGHT, HOUR_HEIGHT } from '@/features/timeline/day-column';
 import { useTimeline } from '@/features/timeline/use-timeline';
+import { StatisticsDashboard } from '@/features/statistics/statistics-dashboard';
 import { Screen } from '@/shared/components/screen';
 import { colors, radii, spacing, typography } from '@/shared/theme/tokens';
 
@@ -287,11 +288,7 @@ export default function ViewScreen() {
           ) : null}
         </>
       ) : (
-        <StatisticsSummary
-          effectiveMs={utilization?.effectiveMs ?? 0}
-          elapsedMs={utilization?.elapsedMs ?? 0}
-          ratio={utilization?.ratio ?? 0}
-        />
+        <StatisticsDashboard now={now} />
       )}
       {overlapSchedules ? (
         <View style={styles.cardOverlay}>
@@ -406,42 +403,6 @@ function SegmentButton({
       <Text style={[styles.segmentText, active && styles.segmentActiveText]}>{label}</Text>
     </Pressable>
   );
-}
-
-function StatisticsSummary({
-  effectiveMs,
-  elapsedMs,
-  ratio,
-}: {
-  effectiveMs: number;
-  elapsedMs: number;
-  ratio: number;
-}) {
-  return (
-    <View style={styles.statistics}>
-      <Text style={styles.statisticsEyebrow}>昨天 00:00 至现在</Text>
-      <Text style={styles.statisticsRatio}>{Math.round(ratio * 100)}%</Text>
-      <View style={styles.statisticsRow}>
-        <Metric label="有效时间" value={formatHours(effectiveMs)} />
-        <Metric label="已经过去" value={formatHours(elapsedMs)} />
-      </View>
-      <Text style={styles.statisticsHint}>计时记录与已发生日程按时间并集合并，不重复计算。</Text>
-    </View>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.metric}>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function formatHours(milliseconds: number) {
-  const totalMinutes = Math.floor(milliseconds / 60_000);
-  return `${Math.floor(totalMinutes / 60)}小时${totalMinutes % 60}分`;
 }
 
 function readableHistoryError(error: Error) {
